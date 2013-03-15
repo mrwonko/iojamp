@@ -654,6 +654,9 @@ if(UseInternalZlib)
 		"${ZlibDir}/inflate.c"
 		"${ZlibDir}/inftrees.c"
 		"${ZlibDir}/zutil.c"
+		"${ZlibDir}/compress.c"
+		"${ZlibDir}/deflate.c"
+		"${ZlibDir}/trees.c"
 		)
 else(UseInternalZlib)
 	find_package(ZLIB REQUIRED)
