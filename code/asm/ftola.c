@@ -24,6 +24,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 static const unsigned short fpucw = 0x0C7F;
 
+#ifndef _MSC_VER
+
 /*
  * GNU inline asm ftol conversion functions using SSE or FPU
  */
@@ -97,3 +99,76 @@ int qvmftolx87(void)
   
   return retval;
 }
+
+#else
+
+/* MSVC Versions of the above */
+
+long _declspec(naked) qftolsse(float f)
+{
+	__asm
+	{
+#if idx64
+		cvttss2si eax, xmm0
+		ret
+#else
+		movss xmm0, dword ptr [esp + 4]
+		cvttss2si eax, xmm0
+		ret
+#endif
+	}
+}
+
+int _declspec(naked) qvmftolsse(void)
+{
+	__asm
+	{
+#if idx64
+		movss xmm0, dword ptr [rdi + rbx * 4]
+		cvttss2si eax, xmm0
+		ret
+#else
+		movss xmm0, dword ptr [edi + ebx * 4]
+		cvttss2si eax, xmm0
+		ret
+#endif
+	}
+}
+
+#if !idx64
+
+long _declspec(naked) qftolx87(float f)
+{
+	__asm
+	{
+		sub esp, 2
+		fnstcw word ptr [esp]
+		fldcw fpucw
+		fld dword ptr [esp + 6]
+		fistp dword ptr [esp + 6]
+		fldcw [esp]
+		mov eax, [esp + 6]
+		add esp, 2
+		ret
+	}
+}
+
+int _declspec(naked) qvmftolx87(void)
+{
+	__asm
+	{
+		sub esp, 2
+		fnstcw word ptr [esp]
+		fldcw fpucw
+		fld dword ptr [edi + ebx * 4]
+		fistp dword ptr [edi + ebx * 4]
+		fldcw [esp]
+		mov eax, [edi + ebx * 4]
+		add esp, 2
+		ret
+	}
+}
+
+#endif
+
+#endif
