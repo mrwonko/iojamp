@@ -54,6 +54,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 
 #define DEFINE_FIXED			0x0001
+#define	DEFINE_GLOBAL			0x0002
 
 #define BUILTIN_LINE			1
 #define BUILTIN_FILE			2
@@ -78,6 +79,7 @@ typedef struct define_s
 	token_t *tokens;					//macro tokens (possibly containing parm tokens)
 	struct define_s *next;				//next defined macro in a list
 	struct define_s *hashnext;			//next define in the hash chain
+	struct define_s *globalnext;		//used to link up the globald defines
 } define_t;
 
 //indents
@@ -137,6 +139,8 @@ int PC_AddGlobalDefine(char *string);
 int PC_RemoveGlobalDefine(char *name);
 //remove all globals defines
 void PC_RemoveAllGlobalDefines(void);
+// add global defines from a file
+int PC_LoadGlobalDefines( const char *filename );
 //add builtin defines
 void PC_AddBuiltinDefines(source_t *source);
 //set the source include path

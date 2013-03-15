@@ -141,6 +141,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define P_PRECOMP						51
 #define P_DOLLAR						52
+#define P_ATSIGN						53
 //name sub type
 //-------------
 //		the length of the name

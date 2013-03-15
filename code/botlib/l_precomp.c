@@ -117,7 +117,13 @@ token_t *freetokens;					//free tokens from the heap
 */
 
 //list with global defines added to every source loaded
-define_t *globaldefines;
+#if DEFINEHASHING
+define_t	**globaldefines = NULL;
+#else
+define_t	*globaldefines;
+#endif
+
+qboolean	addGlobalDefine = qfalse;
 
 //============================================================================
 //
@@ -570,10 +576,17 @@ int PC_NameHash(char *name)
 void PC_AddDefineToHash(define_t *define, define_t **definehash)
 {
 	int hash;
+	if( addGlobalDefine ) {
+		definehash     = globaldefines;
+		define->flags |= DEFINE_GLOBAL;
+	}
 
 	hash = PC_NameHash(define->name);
 	define->hashnext = definehash[hash];
 	definehash[hash] = define;
+	if( addGlobalDefine ) {
+		define->globalnext = define->hashnext;
+	}
 } //end of the function PC_AddDefineToHash
 //============================================================================
 //
@@ -1140,7 +1153,8 @@ int PC_Directive_undef(source_t *source)
 			{
 				if (lastdefine) lastdefine->hashnext = define->hashnext;
 				else source->definehash[hash] = define->hashnext;
-				PC_FreeDefine(define);
+				if( !( define->flags & DEFINE_GLOBAL ) )
+					PC_FreeDefine(define);
 			} //end else
 			break;
 		} //end if
@@ -1379,6 +1393,10 @@ int PC_AddDefine(source_t *source, char *string)
 {
 	define_t *define;
 
+	if( addGlobalDefine ) {
+		return PC_AddGlobalDefine( string );
+	}
+
 	define = PC_DefineFromString(string);
 	if (!define) return qfalse;
 #if DEFINEHASHING
@@ -1398,12 +1416,14 @@ int PC_AddDefine(source_t *source, char *string)
 //============================================================================
 int PC_AddGlobalDefine(char *string)
 {
+#if !DEFINEHASHING
 	define_t *define;
 
 	define = PC_DefineFromString(string);
 	if (!define) return qfalse;
 	define->next = globaldefines;
 	globaldefines = define;
+#endif
 	return qtrue;
 } //end of the function PC_AddGlobalDefine
 //============================================================================
@@ -1415,6 +1435,7 @@ int PC_AddGlobalDefine(char *string)
 //============================================================================
 int PC_RemoveGlobalDefine(char *name)
 {
+#if !DEFINEHASHING
 	define_t *define;
 
 	define = PC_FindDefine(globaldefines, name);
@@ -1423,6 +1444,7 @@ int PC_RemoveGlobalDefine(char *name)
 		PC_FreeDefine(define);
 		return qtrue;
 	} //end if
+#endif
 	return qfalse;
 } //end of the function PC_RemoveGlobalDefine
 //============================================================================
@@ -1435,12 +1457,25 @@ int PC_RemoveGlobalDefine(char *name)
 void PC_RemoveAllGlobalDefines(void)
 {
 	define_t *define;
-
+	
+#if DEFINEHASHING
+	int i;
+	if( globaldefines ) {
+		for( i = 0; i < DEFINEHASHSIZE; i++ ) {
+			while( globaldefines[i] ) {
+				define = globaldefines[i];
+				globaldefines[i] = globaldefines[i]->globalnext;
+				PC_FreeDefine( define );
+			} //end while
+		} //end for
+	} //end if
+#else //DEFINEHASHING
 	for (define = globaldefines; define; define = globaldefines)
 	{
 		globaldefines = globaldefines->next;
 		PC_FreeDefine(define);
 	} //end for
+#endif
 } //end of the function PC_RemoveAllGlobalDefines
 //============================================================================
 //
@@ -1493,18 +1528,27 @@ define_t *PC_CopyDefine(source_t *source, define_t *define)
 //============================================================================
 void PC_AddGlobalDefinesToSource(source_t *source)
 {
-	define_t *define, *newdefine;
-
-	for (define = globaldefines; define; define = define->next)
-	{
-		newdefine = PC_CopyDefine(source, define);
+	define_t *define;
 #if DEFINEHASHING
-		PC_AddDefineToHash(newdefine, source->definehash);
+	int i;
+	for( i = 0; i < DEFINEHASHSIZE; i++ ) {
+		define = globaldefines[i];
+		while( define ) {
+			define->hashnext = NULL;
+			PC_AddDefineToHash( define, source->definehash );
+
+			define = define->globalnext;
+		} // end while
+	} // end for
 #else //DEFINEHASHING
+	define_t *newdefine;
+	for( define = globaldefines; define; define = define->next ) {
+		newdefine = PC_CopyDefine( source, define );
+
 		newdefine->next = source->defines;
 		source->defines = newdefine;
-#endif //DEFINEHASHING
-	} //end for
+	} // end for
+#endif
 } //end of the function PC_AddGlobalDefinesToSource
 //============================================================================
 //
@@ -2716,6 +2760,17 @@ int PC_ReadToken(source_t *source, token_t *token)
 	while(1)
 	{
 		if (!PC_ReadSourceToken(source, token)) return qfalse;
+		// check for stringed markers
+		if (token->type == TT_PUNCTUATION && *token->string == '@') {
+			char *holdString, holdString2[MAX_TOKEN];
+
+			PC_ReadSourceToken(source, token);
+			holdString = &token->string[1];
+			Com_Memcpy( holdString2, token->string, sizeof(token->string));
+			Com_Memcpy( holdString, holdString2, sizeof(token->string));
+			token->string[0] = '@';
+			return qtrue;
+		}
 		//check for precompiler directives
 		if (token->type == TT_PUNCTUATION && *token->string == '#')
 		{
@@ -2994,6 +3049,11 @@ source_t *LoadSourceFile(const char *filename)
 
 	PC_InitTokenHeap();
 
+#if DEFINEHASHING
+	if( !globaldefines )
+		globaldefines = (struct define_s **)GetClearedMemory( DEFINEHASHSIZE * sizeof( define_t * ) );
+#endif
+
 	script = LoadScriptFile(filename);
 	if (!script) return NULL;
 
@@ -3060,6 +3120,7 @@ void FreeSource(source_t *source)
 	token_t *token;
 	define_t *define;
 	indent_t *indent;
+	define_t *nextdefine;
 	int i;
 
 	//PC_PrintDefineHashTable(source->definehash);
@@ -3078,15 +3139,19 @@ void FreeSource(source_t *source)
 		PC_FreeToken(token);
 	} //end for
 #if DEFINEHASHING
-	for (i = 0; i < DEFINEHASHSIZE; i++)
-	{
-		while(source->definehash[i])
-		{
-			define = source->definehash[i];
-			source->definehash[i] = source->definehash[i]->hashnext;
-			PC_FreeDefine(define);
+	for( i = 0; i < DEFINEHASHSIZE; i++ ) {
+		define = source->definehash[i];
+		while( define ) {
+			nextdefine = define->hashnext; 			
+
+			if( !( define->flags & DEFINE_GLOBAL ) )
+				PC_FreeDefine( define );
+
+			define = nextdefine;
 		} //end while
-	} //end for
+
+		source->definehash[i] = NULL;
+	} // end for
 #else //DEFINEHASHING
 	//free all defines
 	while(source->defines)
@@ -3163,6 +3228,31 @@ int PC_FreeSourceHandle(int handle)
 // Returns:				-
 // Changes Globals:		-
 //============================================================================
+int PC_LoadGlobalDefines ( const char* filename ) {
+	int		handle;
+	token_t token;
+
+	handle = PC_LoadSourceHandle( filename );
+	if ( handle < 1 )
+		return qfalse;
+
+	addGlobalDefine = qtrue;
+
+	// Read all the token files which will add the defines globally
+	while( PC_ReadToken( sourceFiles[handle], &token ) );
+
+	addGlobalDefine = qfalse;
+
+	PC_FreeSourceHandle ( handle );
+
+	return qtrue;
+} //end of the function PC_LoadGlobalDefines
+//============================================================================
+//
+// Parameter:			-
+// Returns:				-
+// Changes Globals:		-
+//============================================================================
 int PC_ReadTokenHandle(int handle, pc_token_t *pc_token)
 {
 	token_t token;
@@ -3179,7 +3269,7 @@ int PC_ReadTokenHandle(int handle, pc_token_t *pc_token)
 	pc_token->subtype = token.subtype;
 	pc_token->intvalue = token.intvalue;
 	pc_token->floatvalue = token.floatvalue;
-	if (pc_token->type == TT_STRING)
+	if( ( pc_token->type == TT_STRING ) && ( pc_token->string[0] != '@' ) )
 		StripDoubleQuotes(pc_token->string);
 	return ret;
 } //end of the function PC_ReadTokenHandle

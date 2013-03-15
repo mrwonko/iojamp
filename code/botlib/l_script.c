@@ -157,6 +157,8 @@ punctuation_t default_punctuations[] =
 #ifdef DOLLAR
 	{"$",P_DOLLAR, NULL},
 #endif //DOLLAR
+	// StringEd key
+	{"@",P_ATSIGN, NULL},
 	{NULL, 0}
 };
 
@@ -900,7 +902,7 @@ int PS_ReadToken(script_t *script, token_t *token)
 	//if there is a name
 	else if ((*script->script_p >= 'a' && *script->script_p <= 'z') ||
 		(*script->script_p >= 'A' && *script->script_p <= 'Z') ||
-		*script->script_p == '_')
+		*script->script_p == '_' || *script->script_p == '@' )
 	{
 		if (!PS_ReadName(script, token)) return 0;
 	} //end if

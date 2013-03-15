@@ -94,6 +94,11 @@ struct weaponinfo_s;
 #define ACTION_TALK			0x00010000
 #define ACTION_GESTURE			0x00020000
 #define ACTION_WALK			0x00080000
+#define ACTION_FORCEPOWER		0x0100000
+#define ACTION_ALT_ATTACK		0x0200000
+#define ACTION_JUMPEDLASTFRAME	0x10000000
+
+/*
 #define ACTION_AFFIRMATIVE		0x00100000
 #define ACTION_NEGATIVE			0x00200000
 #define ACTION_GETFLAG			0x00800000
@@ -101,6 +106,7 @@ struct weaponinfo_s;
 #define ACTION_PATROL			0x02000000
 #define ACTION_FOLLOWME			0x08000000
 #define ACTION_JUMPEDLASTFRAME		0x10000000
+*/
 
 //the bot input, will be converted to a usercmd_t
 typedef struct bot_input_s
@@ -273,6 +279,8 @@ typedef struct ea_export_s
 	void	(*EA_SayTeam)(int client, char *str);
 	//
 	void	(*EA_Action)(int client, int action);
+	void	(*EA_Alt_Attack)(int client);
+	void	(*EA_ForcePower)(int client);
 	void	(*EA_Gesture)(int client);
 	void	(*EA_Talk)(int client);
 	void	(*EA_Attack)(int client);
@@ -419,6 +427,8 @@ typedef struct botlib_export_s
 	int (*PC_FreeSourceHandle)(int handle);
 	int (*PC_ReadTokenHandle)(int handle, pc_token_t *pc_token);
 	int (*PC_SourceFileAndLine)(int handle, char *filename, int *line);
+	int (*PC_LoadGlobalDefines)(const char *filename);
+	void (*PC_RemoveAllGlobalDefines)(void);
 
 	//start a frame in the bot library
 	int (*BotLibStartFrame)(float time);

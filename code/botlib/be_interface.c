@@ -175,6 +175,7 @@ int Export_BotLibSetup(void)
 	if (errnum != BLERR_NOERROR) return errnum;
 	errnum = EA_Setup();			//be_ea.c
 	if (errnum != BLERR_NOERROR) return errnum;
+	/*
 	errnum = BotSetupWeaponAI();	//be_ai_weap.c
 	if (errnum != BLERR_NOERROR)return errnum;
 	errnum = BotSetupGoalAI();		//be_ai_goal.c
@@ -183,6 +184,7 @@ int Export_BotLibSetup(void)
 	if (errnum != BLERR_NOERROR) return errnum;
 	errnum = BotSetupMoveAI();		//be_ai_move.c
 	if (errnum != BLERR_NOERROR) return errnum;
+	*/
 
 	botlibsetup = qtrue;
 	botlibglobals.botlibsetup = qtrue;
@@ -740,6 +742,8 @@ static void Init_EA_Export( ea_export_t *ea ) {
 	ea->EA_Gesture = EA_Gesture;
 	ea->EA_Talk = EA_Talk;
 	ea->EA_Attack = EA_Attack;
+	ea->EA_Alt_Attack = EA_Alt_Attack;
+	ea->EA_ForcePower = EA_ForcePower;
 	ea->EA_Use = EA_Use;
 	ea->EA_Respawn = EA_Respawn;
 	ea->EA_Crouch = EA_Crouch;
@@ -894,6 +898,8 @@ botlib_export_t *GetBotLibAPI(int apiVersion, botlib_import_t *import) {
 	be_botlib_export.PC_FreeSourceHandle = PC_FreeSourceHandle;
 	be_botlib_export.PC_ReadTokenHandle = PC_ReadTokenHandle;
 	be_botlib_export.PC_SourceFileAndLine = PC_SourceFileAndLine;
+	be_botlib_export.PC_LoadGlobalDefines = PC_LoadGlobalDefines;
+	be_botlib_export.PC_RemoveAllGlobalDefines = PC_RemoveAllGlobalDefines;
 
 	be_botlib_export.BotLibStartFrame = Export_BotLibStartFrame;
 	be_botlib_export.BotLibLoadMap = Export_BotLibLoadMap;
