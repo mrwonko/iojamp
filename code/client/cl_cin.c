@@ -1624,6 +1624,17 @@ void CL_PlayCinematic_f(void) {
 	}
 }
 
+/*
+====================
+CL_CompleteCinematicName
+====================
+*/
+void CL_CompleteCinematicName( char *args, int argNum ) {
+	if( argNum == 2 ) {
+		Field_CompleteFilename( "video", ".roq", qfalse, qfalse );
+	}
+}
+
 
 void SCR_DrawCinematic (void) {
 	if (CL_handle >= 0 && CL_handle < MAX_VIDEO_HANDLES) {
