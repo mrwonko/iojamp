@@ -17,6 +17,7 @@ option(UseInternalOgg "Whether to use the included Ogg instead of a locally inst
 option(UseInternalOpus "Whether to use the included Opus instead of a locally installed one" ON)
 option(UseInternalZlib "Whether to use the included ZLIB instead of a locally installed one" ON)
 option(UseInternalJpeg "Whether to use the included libjpeg instead of a locally installed one" ON)
+option(UseInternalPng "Whether to use the included PNG instead of a locally installed one" ON)
 option(UseRendererDlopen "Whether to load the renderer via dlopen" ON)
 
 set(Version 1.36)
@@ -37,6 +38,7 @@ set(NullDir "${CodeDir}/null")
 set(UIDir "${CodeDir}/ui")
 set(Q3UIDir "${CodeDir}/q3_ui")
 set(JpegDir "${CodeDir}/jpeg-8c")
+set(PngDir "${CodeDir}/png")
 set(SpeexDir "${CodeDir}/libspeex")
 set(OggDir "${CodeDir}/libogg-1.3.0")
 set(OpusDir "${CodeDir}/opus-1.0.2")
@@ -161,6 +163,34 @@ else(UseInternalJpeg)
 	set(CommonRendererIncludeDirs ${CommonRendererIncludeDirs} ${JPEG_INCLUDE_DIR})
 	set(CommonRendererLibs ${CommonRendererLibs} ${JPEG_LIBRARIES})
 endif(UseInternalJpeg)
+
+# PNG
+if(UseInternalPng)
+	set(CommonRendererIncludeDirs ${CommonRendererIncludeDirs} ${JpegDir})
+	set(CommonRendererSrcFiles
+		${CommonRendererSrcFiles}
+		"${PngDir}/png.c"
+		"${PngDir}/pngerror.c"
+		"${PngDir}/pngget.c"
+		"${PngDir}/pngmem.c"
+		"${PngDir}/pngpread.c"
+		"${PngDir}/pngread.c"
+		"${PngDir}/pngrio.c"
+		"${PngDir}/pngrtran.c"
+		"${PngDir}/pngrutil.c"
+		"${PngDir}/pngset.c"
+		"${PngDir}/pngtrans.c"
+		"${PngDir}/pngwio.c"
+		"${PngDir}/pngwrite.c"
+		"${PngDir}/pngwtran.c"
+		"${PngDir}/pngwutil.c"
+		)
+else(UseInternalPng)
+	find_package(PNG REQUIRED)
+	set(CommonRendererDefines ${CommonRendererDefines} ${PNG_DEFINITIONS}) #not actually used, but let
+	set(CommonRendererIncludeDirs ${CommonRendererIncludeDirs} ${PNG_INCLUDE_DIR})
+	set(CommonRendererLibs ${CommonRendererLibs} ${PNG_LIBRARIES})
+endif(UseInternalPng)
 
 # When not linking into the executable, these files are required since functions from there are used
 if(UseRendererDlopen)
