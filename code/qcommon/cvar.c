@@ -32,7 +32,7 @@ int			cvar_modifiedFlags;
 cvar_t		cvar_indexes[MAX_CVARS];
 int			cvar_numIndexes;
 
-#define FILE_HASH_SIZE		256
+#define FILE_HASH_SIZE		512
 static	cvar_t	*hashTable[FILE_HASH_SIZE];
 
 /*
@@ -190,6 +190,9 @@ void Cvar_CommandCompletion(void (*callback)(const char *s))
 	
 	for(cvar = cvar_vars; cvar; cvar = cvar->next)
 	{
+		// JKA: Don't complete internal cvars
+		if(cvar->flags & CVAR_INTERNAL)
+			continue;
 		if(cvar->name)
 			callback(cvar->name);
 	}
@@ -222,7 +225,7 @@ static const char *Cvar_Validate( cvar_t *var,
 			if( !Q_isintegral( valuef ) )
 			{
 				if( warn )
-					Com_Printf( "WARNING: cvar '%s' must be integral", var->name );
+					Com_Printf( S_COLOR_YELLOW "WARNING: cvar '%s' must be integral", var->name );
 
 				valuef = (int)valuef;
 				changed = qtrue;
@@ -232,7 +235,7 @@ static const char *Cvar_Validate( cvar_t *var,
 	else
 	{
 		if( warn )
-			Com_Printf( "WARNING: cvar '%s' must be numeric", var->name );
+			Com_Printf( S_COLOR_YELLOW "WARNING: cvar '%s' must be numeric", var->name );
 
 		valuef = atof( var->resetString );
 		changed = qtrue;
@@ -245,7 +248,7 @@ static const char *Cvar_Validate( cvar_t *var,
 			if( changed )
 				Com_Printf( " and is" );
 			else
-				Com_Printf( "WARNING: cvar '%s'", var->name );
+				Com_Printf( S_COLOR_YELLOW "WARNING: cvar '%s'", var->name );
 
 			if( Q_isintegral( var->min ) )
 				Com_Printf( " out of range (min %d)", (int)var->min );
@@ -263,7 +266,7 @@ static const char *Cvar_Validate( cvar_t *var,
 			if( changed )
 				Com_Printf( " and is" );
 			else
-				Com_Printf( "WARNING: cvar '%s'", var->name );
+				Com_Printf( S_COLOR_YELLOW "WARNING: cvar '%s'", var->name );
 
 			if( Q_isintegral( var->max ) )
 				Com_Printf( " out of range (max %d)", (int)var->max );
@@ -386,7 +389,7 @@ cvar_t *Cvar_Get( const char *var_name, const char *var_value, int flags ) {
 			Z_Free( var->resetString );
 			var->resetString = CopyString( var_value );
 		} else if ( var_value[0] && strcmp( var->resetString, var_value ) ) {
-			Com_DPrintf( "Warning: cvar \"%s\" given initial values: \"%s\" and \"%s\"\n",
+			Com_DPrintf( S_COLOR_YELLOW "Warning: cvar \"%s\" given initial values: \"%s\" and \"%s\"\n",
 				var_name, var->resetString, var_value );
 		}
 		// if we have a latched string, take that value now
@@ -627,10 +630,10 @@ void Cvar_Set( const char *var_name, const char *value) {
 
 /*
 ============
-Cvar_SetSafe
+Cvar_SetSafe2
 ============
 */
-void Cvar_SetSafe( const char *var_name, const char *value )
+cvar_t* Cvar_Set2Safe( const char *var_name, const char *value, qboolean force )
 {
 	int flags = Cvar_Flags( var_name );
 
@@ -642,9 +645,19 @@ void Cvar_SetSafe( const char *var_name, const char *value )
 		else
 			Com_Error( ERR_DROP, "Restricted source tried to "
 				"modify \"%s\"", var_name );
-		return;
+		return NULL;
 	}
-	Cvar_Set( var_name, value );
+	return Cvar_Set2( var_name, value, force );
+}
+
+/*
+============
+Cvar_SetSafe
+============
+*/
+void Cvar_SetSafe( const char *var_name, const char *value )
+{
+	Cvar_Set2Safe( var_name, value, qtrue );
 }
 
 /*
@@ -664,12 +677,28 @@ Cvar_SetValue
 void Cvar_SetValue( const char *var_name, float value) {
 	char	val[32];
 
-	if ( value == (int)value ) {
+	if ( Q_isintegral( value ) ) {
 		Com_sprintf (val, sizeof(val), "%i",(int)value);
 	} else {
 		Com_sprintf (val, sizeof(val), "%f",value);
 	}
 	Cvar_Set (var_name, val);
+}
+
+/*
+============
+Cvar_SetValue2
+============
+*/
+void Cvar_SetValue2( const char *var_name, float value, qboolean force )
+{
+	char	val[32];
+
+	if( Q_isintegral( value ) )
+		Com_sprintf( val, sizeof(val), "%i", (int)value );
+	else
+		Com_sprintf( val, sizeof(val), "%f", value );
+	Cvar_Set2( var_name, val, force );
 }
 
 /*
@@ -681,11 +710,29 @@ void Cvar_SetValueSafe( const char *var_name, float value )
 {
 	char val[32];
 
-	if( Q_isintegral( value ) )
+	if( Q_isintegral( value ) ) {
 		Com_sprintf( val, sizeof(val), "%i", (int)value );
-	else
+	} else {
 		Com_sprintf( val, sizeof(val), "%f", value );
+	}
 	Cvar_SetSafe( var_name, val );
+}
+
+/*
+============
+Cvar_SetValue2Safe
+============
+*/
+void Cvar_SetValue2Safe( const char *var_name, float value, qboolean force )
+{
+	char	val[32];
+
+	if( Q_isintegral( value ) ) {
+		Com_sprintf( val, sizeof(val), "%i", (int)value );
+	} else {
+		Com_sprintf( val, sizeof(val), "%f", value );
+	}
+	Cvar_Set2Safe( var_name, val, force );
 }
 
 /*
@@ -755,6 +802,12 @@ qboolean Cvar_Command( void ) {
 	// perform a variable print or set
 	if ( Cmd_Argc() == 1 ) {
 		Cvar_Print( v );
+		return qtrue;
+	}
+
+	if( !strcmp( Cmd_Argv(1), "!" ) ) {
+		// Swap the value if our command has ! in it (bind p "cg_thirdPeson !")
+		Cvar_SetValue2( v->name, !v->value, qfalse );
 		return qtrue;
 	}
 
@@ -960,7 +1013,8 @@ void Cvar_List_f( void ) {
 	i = 0;
 	for (var = cvar_vars ; var ; var = var->next, i++)
 	{
-		if(!var->name || (match && !Com_Filter(match, var->name, qfalse)))
+		// JKA: Don't list internal cvars
+		if(!var->name || (match && !Com_Filter(match, var->name, qfalse)) || (var->flags & CVAR_INTERNAL))
 			continue;
 
 		if (var->flags & CVAR_SERVERINFO) {
