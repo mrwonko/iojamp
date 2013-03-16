@@ -18,9 +18,10 @@ option(UseInternalOpus "Whether to use the included Opus instead of a locally in
 option(UseInternalZlib "Whether to use the included ZLIB instead of a locally installed one" ON)
 option(UseInternalJpeg "Whether to use the included libjpeg instead of a locally installed one" ON)
 option(UseInternalPng "Whether to use the included PNG instead of a locally installed one" ON)
+option(UseInternalMad "Whether to use the included Mad instead of a locally installed one" ON)
 option(UseRendererDlopen "Whether to load the renderer via dlopen" ON)
 
-set(Version 1.36)
+set(Version 1.36) # TODO: bump this to 2.0 once supporting JKA instead of Q3
 set(CodeDir "${CMAKE_CURRENT_SOURCE_DIR}/code")
 set(ClientDir "${CodeDir}/client")
 set(ServerDir "${CodeDir}/server")
@@ -39,6 +40,7 @@ set(UIDir "${CodeDir}/ui")
 set(Q3UIDir "${CodeDir}/q3_ui")
 set(JpegDir "${CodeDir}/jpeg-8c")
 set(PngDir "${CodeDir}/png")
+set(MadDir "${CodeDir}/mad")
 set(SpeexDir "${CodeDir}/libspeex")
 set(OggDir "${CodeDir}/libogg-1.3.0")
 set(OpusDir "${CodeDir}/opus-1.0.2")
@@ -247,8 +249,6 @@ endif(UseRendererDlopen)
 
 #   Executable
 
-#ENABLE_LANGUAGE(ASM_MASM) #TODO: does this work for assembler on linux, too?
-
 set(IojampSrcFiles
 	"${ClientDir}/cl_cgame.c"
 	"${ClientDir}/cl_cin.c"
@@ -290,6 +290,7 @@ set(IojampSrcFiles
 	"${ClientDir}/snd_codec_wav.c"
 	"${ClientDir}/snd_codec_ogg.c"
 	"${ClientDir}/snd_codec_opus.c"
+	"${ClientDir}/snd_codec_mp3.c"
 	
 	"${ClientDir}/qal.c"
 	"${ClientDir}/snd_openal.c"
@@ -584,10 +585,36 @@ if(NeedOgg)
 	endif(UseInternalOgg)
 endif(NeedOgg)
 
+# MAD
+# search for library, including local one
+find_library(MadLib NAMES mad libmad
+	HINTS "${LibsDir}/win32" "${LibsDir}/win64" $ENV{MADDIR}
+	PATH_SUFFIXES lib lib64
+	)
+find_path(MadIncludeDir NAMES mad.h
+	HINTS "${MadDir}" $ENV{MADDIR}
+	PATH_SUFFIXES include
+	PATHS
+	~/Library/Frameworks
+	/Library/Frameworks
+	/usr/local/include/SDL12
+	/usr/local/include/SDL11 # FreeBSD ports
+	/usr/include/SDL12
+	/usr/include/SDL11
+	/sw # Fink
+	/opt/local # DarwinPorts
+	/opt/csw # Blastwave
+	/opt
+	)
+if( (NOT MadLib) OR (NOT MadIncludeDir) )
+	message(FATAL_ERROR "Could not find Mad!")
+endif( (NOT MadLib) OR (NOT MadIncludeDir) )
+set(IojampIncludeDirs ${IojampIncludeDirs} ${MadIncludeDir})
+set(IojampLibs ${IojampLibs} ${MadLib})
+
 if(UseMumble)
 	set(IojampDefines ${IojampDefines} USE_MUMBLE)
 	set(IojampSrcFiles ${IojampSrcFiles} "${ClientDir}/libmumblelink.c")
-	#TODO: link Mumble?
 endif(UseMumble)
 
 if(UseVoip)
