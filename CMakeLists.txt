@@ -35,7 +35,7 @@ set(SysDir "${CodeDir}/sys")
 set(GameDir "${CodeDir}/game")
 set(CGameDir "${CodeDir}/cgame")
 set(BotlibDir "${CodeDir}/botlib")
-set(NullDir "${CodeDir}/null")
+#set(NullDir "${CodeDir}/null")
 set(UIDir "${CodeDir}/ui")
 set(Q3UIDir "${CodeDir}/q3_ui")
 set(JpegDir "${CodeDir}/jpeg-8c")
@@ -46,12 +46,12 @@ set(OggDir "${CodeDir}/libogg-1.3.0")
 set(OpusDir "${CodeDir}/opus-1.0.2")
 set(OpusfileDir "${CodeDir}/opusfile-0.2")
 set(ZlibDir "${CodeDir}/zlib")
-set(Q3asmDir "${CodeDir}/tools/asm")
-set(LburgDir "${CodeDir}/tools/lcc/lburg")
-set(Q3cppDir "${CodeDir}/tools/lcc/cpp")
-set(Q3lccEtcDir "${CodeDir}/tools/lcc/etc")
-set(Q3lccSrcDir "${CodeDir}/tools/lcc/src")
-set(SdlHeaderDir "${CodeDir}/SDL12")
+#set(Q3asmDir "${CodeDir}/tools/asm")
+#set(LburgDir "${CodeDir}/tools/lcc/lburg")
+#set(Q3cppDir "${CodeDir}/tools/lcc/cpp")
+#set(Q3lccEtcDir "${CodeDir}/tools/lcc/etc")
+#set(Q3lccSrcDir "${CodeDir}/tools/lcc/src")
+#set(SdlHeaderDir "${CodeDir}/SDL12")
 set(LibsDir "${CodeDir}/libs")
 
 # Names for binaries
@@ -94,6 +94,11 @@ set(CommonRendererSrcFiles
 	"${RendererCommonDir}/tr_image_tga.c"
 	"${RendererCommonDir}/tr_noise.c"
 	"${RendererCommonDir}/tr_font.c"
+	"${RendererCommonDir}/iqm.h"
+	"${RendererCommonDir}/qgl.h"
+	"${RendererCommonDir}/tr_common.h"
+	"${RendererCommonDir}/tr_public.h"
+	"${RendererCommonDir}/tr_types.h"
 	)
 set(CommonRendererIncludeDirs ${SDL_INCLUDE_DIR} ${OPENGL_INCLUDE_DIR})
 set(CommonRendererLibs ${SDL_LIBRARY} ${OPENGL_LIBRARIES})
@@ -159,6 +164,15 @@ if(UseInternalJpeg)
 		"${JpegDir}/jquant1.c"
 		"${JpegDir}/jquant2.c"
 		"${JpegDir}/jutils.c"
+		"${JpegDir}/jconfig.h"
+		"${JpegDir}/jdct.h"
+		"${JpegDir}/jerror.h"
+		"${JpegDir}/jinclude.h"
+		"${JpegDir}/jmemsys.h"
+		"${JpegDir}/jmorecfg.h"
+		"${JpegDir}/jpegint.h"
+		"${JpegDir}/jpeglib.h"
+		"${JpegDir}/jversion.h"
 		)
 else(UseInternalJpeg)
 	find_package(JPEG REQUIRED)
@@ -186,6 +200,14 @@ if(UseInternalPng)
 		"${PngDir}/pngwrite.c"
 		"${PngDir}/pngwtran.c"
 		"${PngDir}/pngwutil.c"
+		
+		"${PngDir}/png.h"
+		"${PngDir}/pngconf.h"
+		"${PngDir}/pngdebug.h"
+		"${PngDir}/pnginfo.h"
+		"${PngDir}/pnglibconf.h"
+		"${PngDir}/pngpriv.h"
+		"${PngDir}/pngstruct.h"
 		)
 else(UseInternalPng)
 	find_package(PNG REQUIRED)
@@ -201,6 +223,22 @@ if(UseRendererDlopen)
 		"${CommonDir}/q_shared.c"
 		"${CommonDir}/puff.c"
 		"${CommonDir}/q_math.c"
+		
+		"${CommonDir}/cm_local.h"
+		"${CommonDir}/cm_patch.h"
+		"${CommonDir}/cm_polylib.h"
+		"${CommonDir}/cm_public.h"
+		"${CommonDir}/ioapi.h"
+		"${CommonDir}/puff.h"
+		"${CommonDir}/q_platform.h"
+		"${CommonDir}/q_shared.h"
+		"${CommonDir}/qcommon.h"
+		"${CommonDir}/qfiles.h"
+		"${CommonDir}/surfaceflags.h"
+		"${CommonDir}/unzip.h"
+		"${CommonDir}/vm_local.h"
+		"${CommonDir}/vm_powerpc_asm.h"
+		"${CommonDir}/vm_sparc.h"
 		)
 endif(UseRendererDlopen)
 
@@ -230,6 +268,8 @@ set(RendererGl1SrcFiles
 	"${RendererGl1Dir}/tr_shadows.c"
 	"${RendererGl1Dir}/tr_surface.c"
 	"${RendererGl1Dir}/tr_world.c"
+	
+	"${RendererGl1Dir}/tr_local.h"
 	
 	"${SdlDir}/sdl_gamma.c"
 	"${SdlDir}/sdl_glimp.c"
@@ -267,6 +307,21 @@ set(IojampSrcFiles
 	"${CommonDir}/cm_polylib.c"
 	"${CommonDir}/cm_test.c"
 	"${CommonDir}/cm_trace.c"
+	"${CommonDir}/cm_local.h"
+	"${CommonDir}/cm_patch.h"
+	"${CommonDir}/cm_polylib.h"
+	"${CommonDir}/cm_public.h"
+	"${CommonDir}/ioapi.h"
+	"${CommonDir}/puff.h"
+	"${CommonDir}/q_platform.h"
+	"${CommonDir}/q_shared.h"
+	"${CommonDir}/qcommon.h"
+	"${CommonDir}/qfiles.h"
+	"${CommonDir}/surfaceflags.h"
+	"${CommonDir}/unzip.h"
+	"${CommonDir}/vm_local.h"
+	"${CommonDir}/vm_powerpc_asm.h"
+	"${CommonDir}/vm_sparc.h"
 	
 	"${CommonDir}/cmd.c"
 	"${CommonDir}/common.c"
@@ -278,6 +333,14 @@ set(IojampSrcFiles
 	"${CommonDir}/net_chan.c"
 	"${CommonDir}/net_ip.c"
 	"${CommonDir}/huffman.c"
+	"${ClientDir}/cl_curl.h"
+	"${ClientDir}/client.h"
+	"${ClientDir}/keycodes.h"
+	"${ClientDir}/keys.h"
+	"${ClientDir}/libmumblelink.h"
+	"${ClientDir}/qal.h"
+	"${ClientDir}/snd_local.h"
+	"${ClientDir}/snd_public.h"
 	
 	"${ClientDir}/snd_adpcm.c"
 	"${ClientDir}/snd_dma.c"
@@ -291,6 +354,7 @@ set(IojampSrcFiles
 	"${ClientDir}/snd_codec_ogg.c"
 	"${ClientDir}/snd_codec_opus.c"
 	"${ClientDir}/snd_codec_mp3.c"
+"${ClientDir}/snd_codec.h"
 	
 	"${ClientDir}/qal.c"
 	"${ClientDir}/snd_openal.c"
@@ -306,6 +370,7 @@ set(IojampSrcFiles
 	"${ServerDir}/sv_net_chan.c"
 	"${ServerDir}/sv_snapshot.c"
 	"${ServerDir}/sv_world.c"
+	"${ServerDir}/server.h"
 	
 	"${CommonDir}/q_math.c"
 	"${CommonDir}/q_shared.c"
@@ -319,6 +384,7 @@ set(IojampSrcFiles
 	
 	"${SdlDir}/sdl_input.c"
 	"${SdlDir}/sdl_snd.c"
+	"${SdlDir}/sdl_icon.h"
 	
 	#"${AsmDir}/snd_mixa.s"
 	#"${AsmDir}/matha.s"
@@ -329,6 +395,13 @@ set(IojampSrcFiles
 	
 	"${SysDir}/con_log.c"
 	"${SysDir}/sys_main.c"
+	"${SysDir}/sys_loadlib.h"
+	"${SysDir}/sys_local.h"
+	
+	"${UIDir}/ui_public.h"
+	"${CGameDir}/cg_public.h"
+	"${GameDir}/bg_public.h"
+	"${GameDir}/g_public.h"
 	)
 
 # Botlib needs BOTLIB define when building
@@ -361,6 +434,40 @@ set(IojampBotlibSrcFiles
 	"${BotlibDir}/l_precomp.c"
 	"${BotlibDir}/l_script.c"
 	"${BotlibDir}/l_struct.c"
+	"${BotlibDir}/aasfile.h"
+	"${BotlibDir}/be_aas.h"
+	"${BotlibDir}/be_aas_bsp.h"
+	"${BotlibDir}/be_aas_cluster.h"
+	"${BotlibDir}/be_aas_debug.h"
+	"${BotlibDir}/be_aas_def.h"
+	"${BotlibDir}/be_aas_entity.h"
+	"${BotlibDir}/be_aas_file.h"
+	"${BotlibDir}/be_aas_funcs.h"
+	"${BotlibDir}/be_aas_main.h"
+	"${BotlibDir}/be_aas_move.h"
+	"${BotlibDir}/be_aas_optimize.h"
+	"${BotlibDir}/be_aas_reach.h"
+	"${BotlibDir}/be_aas_route.h"
+	"${BotlibDir}/be_aas_routealt.h"
+	"${BotlibDir}/be_aas_sample.h"
+	"${BotlibDir}/be_ai_char.h"
+	"${BotlibDir}/be_ai_chat.h"
+	"${BotlibDir}/be_ai_gen.h"
+	"${BotlibDir}/be_ai_goal.h"
+	"${BotlibDir}/be_ai_move.h"
+	"${BotlibDir}/be_ai_weap.h"
+	"${BotlibDir}/be_ai_weight.h"
+	"${BotlibDir}/be_ea.h"
+	"${BotlibDir}/be_interface.h"
+	"${BotlibDir}/botlib.h"
+	"${BotlibDir}/l_crc.h"
+	"${BotlibDir}/l_libvar.h"
+	"${BotlibDir}/l_log.h"
+	"${BotlibDir}/l_memory.h"
+	"${BotlibDir}/l_precomp.h"
+	"${BotlibDir}/l_script.h"
+	"${BotlibDir}/l_struct.h"
+	"${BotlibDir}/l_utils.h"
 	)
 set_source_files_properties(${IojampBotlibSrcFiles} PROPERTIES COMPILE_DEFINITIONS "BOTLIB")
 set(IojampSrcFiles ${IojampSrcFiles} ${IojampBotlibSrcFiles})
@@ -374,6 +481,8 @@ if(WIN32)
 		"${SysDir}/con_passive.c"
 		"${SysDir}/win_resource.rc"
 		"${SysDir}/sys_win32.c"
+		
+		"${SysDir}/win_resource.h"
 		)
 else(WIN32)
 	set(IojampSrcFiles
@@ -432,6 +541,8 @@ if(UseCodecOpus)
 			"${OpusDir}/src/opus_multistream.c"
 			"${OpusDir}/src/repacketizer.c"
 			
+			"${OpusDir}/src/opus_private.h"
+			
 			"${OpusDir}/celt/bands.c"
 			"${OpusDir}/celt/celt.c"
 			"${OpusDir}/celt/cwrs.c"
@@ -448,6 +559,34 @@ if(UseCodecOpus)
 			"${OpusDir}/celt/quant_bands.c"
 			"${OpusDir}/celt/rate.c"
 			"${OpusDir}/celt/vq.c"
+			
+			"${OpusDir}/celt/_kiss_fft_guts.h"
+			"${OpusDir}/celt/arch.h"
+			"${OpusDir}/celt/bands.h"
+			"${OpusDir}/celt/celt.h"
+			"${OpusDir}/celt/celt_lpc.h"
+			"${OpusDir}/celt/cwrs.h"
+			"${OpusDir}/celt/ecintrin.h"
+			"${OpusDir}/celt/entcode.h"
+			"${OpusDir}/celt/entdec.h"
+			"${OpusDir}/celt/entenc.h"
+			"${OpusDir}/celt/fixed_debug.h"
+			"${OpusDir}/celt/fixed_generic.h"
+			"${OpusDir}/celt/float_cast.h"
+			"${OpusDir}/celt/kiss_fft.h"
+			"${OpusDir}/celt/laplace.h"
+			"${OpusDir}/celt/mathops.h"
+			"${OpusDir}/celt/mdct.h"
+			"${OpusDir}/celt/mfrngcod.h"
+			"${OpusDir}/celt/modes.h"
+			"${OpusDir}/celt/os_support.h"
+			"${OpusDir}/celt/pitch.h"
+			"${OpusDir}/celt/quant_bands.h"
+			"${OpusDir}/celt/rate.h"
+			"${OpusDir}/celt/stack_alloc.h"
+			"${OpusDir}/celt/static_modes_fixed.h"
+			"${OpusDir}/celt/static_modes_float.h"
+			"${OpusDir}/celt/vq.h"
 			
 			"${OpusDir}/silk/CNG.c"
 			"${OpusDir}/silk/code_signs.c"
@@ -526,6 +665,27 @@ if(UseCodecOpus)
 			"${OpusDir}/silk/stereo_find_predictor.c"
 			"${OpusDir}/silk/stereo_quant_pred.c"
 			
+			"${OpusDir}/silk/API.h"
+			"${OpusDir}/silk/Inlines.h"
+			"${OpusDir}/silk/MacroCount.h"
+			"${OpusDir}/silk/MacroDebug.h"
+			"${OpusDir}/silk/PLC.h"
+			"${OpusDir}/silk/SigProc_FIX.h"
+			"${OpusDir}/silk/control.h"
+			"${OpusDir}/silk/debug.h"
+			"${OpusDir}/silk/define.h"
+			"${OpusDir}/silk/errors.h"
+			"${OpusDir}/silk/macros.h"
+			"${OpusDir}/silk/main.h"
+			"${OpusDir}/silk/pitch_est_defines.h"
+			"${OpusDir}/silk/resampler_private.h"
+			"${OpusDir}/silk/resampler_rom.h"
+			"${OpusDir}/silk/resampler_structs.h"
+			"${OpusDir}/silk/structs.h"
+			"${OpusDir}/silk/tables.h"
+			"${OpusDir}/silk/tuning_parameters.h"
+			"${OpusDir}/silk/typedef.h"
+			
 			"${OpusDir}/silk/float/apply_sine_window_FLP.c"
 			"${OpusDir}/silk/float/corrMatrix_FLP.c"
 			"${OpusDir}/silk/float/encode_frame_FLP.c"
@@ -558,11 +718,24 @@ if(UseCodecOpus)
 			"${OpusDir}/silk/float/schur_FLP.c"
 			"${OpusDir}/silk/float/sort_FLP.c"
 			
+			"${OpusDir}/silk/float/SigProc_FLP.h"
+			"${OpusDir}/silk/float/main_FLP.h"
+			"${OpusDir}/silk/float/structs_FLP.h"
+
+			"${OpusDir}/include/opus.h"
+			"${OpusDir}/include/opus_custom.h"
+			"${OpusDir}/include/opus_defines.h"
+			"${OpusDir}/include/opus_multistream.h"
+			"${OpusDir}/include/opus_types.h"
+			
 			"${OpusfileDir}/src/http.c"
 			"${OpusfileDir}/src/info.c"
 			"${OpusfileDir}/src/internal.c"
 			"${OpusfileDir}/src/opusfile.c"
 			"${OpusfileDir}/src/stream.c"
+			
+			"${OpusfileDir}/include/opusfile.h"
+			"${OpusfileDir}/src/internal.h"
 			)
 	else(UseInternalOpus)
 		set(IojampLibs ${IojampLibs} opusfile opus)
@@ -579,6 +752,10 @@ if(NeedOgg)
 			${IojampSrcFiles}
 			"${OggDir}/src/bitwise.c"
 			"${OggDir}/src/framing.c"
+			
+			"${OggDir}/include/ogg/config_types.h"
+			"${OggDir}/include/ogg/ogg.h"
+			"${OggDir}/include/ogg/os_types.h"
 			)
 	else(UseInternalOgg)
 		set(IojampLibs ${IojampLibs} ogg)
@@ -664,6 +841,65 @@ if(UseVoip)
 			"${SpeexDir}/vbr.c"
 			"${SpeexDir}/vq.c"
 			"${SpeexDir}/window.c"
+			
+			"${SpeexDir}/_kiss_fft_guts.h"
+			"${SpeexDir}/arch.h"
+			"${SpeexDir}/cb_search.h"
+			"${SpeexDir}/cb_search_arm4.h"
+			"${SpeexDir}/cb_search_bfin.h"
+			"${SpeexDir}/cb_search_sse.h"
+			"${SpeexDir}/config.h"
+			"${SpeexDir}/fftwrap.h"
+			"${SpeexDir}/filterbank.h"
+			"${SpeexDir}/filters.h"
+			"${SpeexDir}/filters_arm4.h"
+			"${SpeexDir}/filters_bfin.h"
+			"${SpeexDir}/filters_sse.h"
+			"${SpeexDir}/fixed_arm4.h"
+			"${SpeexDir}/fixed_arm5e.h"
+			"${SpeexDir}/fixed_bfin.h"
+			"${SpeexDir}/fixed_debug.h"
+			"${SpeexDir}/fixed_generic.h"
+			"${SpeexDir}/kiss_fft.h"
+			"${SpeexDir}/kiss_fftr.h"
+			"${SpeexDir}/lpc.h"
+			"${SpeexDir}/lpc_bfin.h"
+			"${SpeexDir}/lsp.h"
+			"${SpeexDir}/lsp_bfin.h"
+			"${SpeexDir}/ltp.h"
+			"${SpeexDir}/ltp_arm4.h"
+			"${SpeexDir}/ltp_bfin.h"
+			"${SpeexDir}/ltp_sse.h"
+			"${SpeexDir}/math_approx.h"
+			"${SpeexDir}/misc_bfin.h"
+			"${SpeexDir}/modes.h"
+			"${SpeexDir}/nb_celp.h"
+			"${SpeexDir}/os_support.h"
+			"${SpeexDir}/pseudofloat.h"
+			"${SpeexDir}/quant_lsp.h"
+			"${SpeexDir}/quant_lsp_bfin.h"
+			"${SpeexDir}/sb_celp.h"
+			"${SpeexDir}/smallft.h"
+			"${SpeexDir}/stack_alloc.h"
+			"${SpeexDir}/vbr.h"
+			"${SpeexDir}/vorbis_psy.h"
+			"${SpeexDir}/vq.h"
+			"${SpeexDir}/vq_arm4.h"
+			"${SpeexDir}/vq_bfin.h"
+			"${SpeexDir}/vq_sse.h"
+			
+			"${SpeexDir}/include/speex/speex.h"
+			"${SpeexDir}/include/speex/speex_bits.h"
+			"${SpeexDir}/include/speex/speex_buffer.h"
+			"${SpeexDir}/include/speex/speex_callbacks.h"
+			"${SpeexDir}/include/speex/speex_config_types.h"
+			"${SpeexDir}/include/speex/speex_echo.h"
+			"${SpeexDir}/include/speex/speex_header.h"
+			"${SpeexDir}/include/speex/speex_jitter.h"
+			"${SpeexDir}/include/speex/speex_preprocess.h"
+			"${SpeexDir}/include/speex/speex_resampler.h"
+			"${SpeexDir}/include/speex/speex_stereo.h"
+			"${SpeexDir}/include/speex/speex_types.h"
 			)
 	else(UseInternalSpeex)
 		set(IojampLibs ${IojampLibs} speex speexdsp)
@@ -684,6 +920,17 @@ if(UseInternalZlib)
 		"${ZlibDir}/compress.c"
 		"${ZlibDir}/deflate.c"
 		"${ZlibDir}/trees.c"
+		
+		"${ZlibDir}/crc32.h"
+		"${ZlibDir}/deflate.h"
+		"${ZlibDir}/inffast.h"
+		"${ZlibDir}/inffixed.h"
+		"${ZlibDir}/inflate.h"
+		"${ZlibDir}/inftrees.h"
+		"${ZlibDir}/trees.h"
+		"${ZlibDir}/zconf.h"
+		"${ZlibDir}/zlib.h"
+		"${ZlibDir}/zutil.h"
 		)
 else(UseInternalZlib)
 	find_package(ZLIB REQUIRED)
