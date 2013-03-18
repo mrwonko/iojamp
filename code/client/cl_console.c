@@ -55,8 +55,14 @@ typedef struct {
 
 console_t	con;
 
-cvar_t		*con_conspeed;
-cvar_t		*con_notifytime;
+cvar_t *con_speed;
+cvar_t *con_allowChat;
+cvar_t *con_background;
+cvar_t *con_opacity;
+cvar_t *con_height;
+
+cvar_t *notify_time;
+cvar_t *notify_xoffset;
 
 #define	DEFAULT_CONSOLE_WIDTH	78
 
@@ -85,8 +91,8 @@ Con_ToggleMenu_f
 ===================
 */
 void Con_ToggleMenu_f( void ) {
-	CL_KeyEvent( K_ESCAPE, qtrue, Sys_Milliseconds() );
-	CL_KeyEvent( K_ESCAPE, qfalse, Sys_Milliseconds() );
+	CL_KeyEvent( A_ESCAPE, qtrue, Sys_Milliseconds() );
+	CL_KeyEvent( A_ESCAPE, qfalse, Sys_Milliseconds() );
 }
 
 /*
@@ -346,8 +352,19 @@ Con_Init
 void Con_Init (void) {
 	int		i;
 
-	con_notifytime = Cvar_Get ("con_notifytime", "3", 0);
-	con_conspeed = Cvar_Get ("scr_conspeed", "3", 0);
+	notify_time    = Cvar_Get( "notify_time", "3", 0 );
+	notify_xoffset = Cvar_Get( "notify_xoffset", "0", 0 );
+	Cvar_Get( "cl_conXOffset", "0", CVAR_ROM ); // legacy
+
+	con_speed      = Cvar_Get( "con_speed", "3", CVAR_ARCHIVE );
+	con_allowChat  = Cvar_Get( "con_allowChat", "1", CVAR_ARCHIVE );
+	Cvar_CheckRange( con_allowChat, 0, 1, qtrue );
+	con_background = Cvar_Get( "con_background", "1", CVAR_ARCHIVE );
+	Cvar_CheckRange( con_background, 0, 1, qtrue );
+	con_opacity    = Cvar_Get( "con_opacity", "0.75", CVAR_ARCHIVE );
+	Cvar_CheckRange( con_opacity, 0.0f, 1.0f, qfalse );
+	con_height     = Cvar_Get( "con_height", "0.5", CVAR_ARCHIVE );
+	Cvar_CheckRange( con_height, 0.1f, 1.0f, qfalse );
 
 	Field_Clear( &g_consoleField );
 	g_consoleField.widthInChars = g_console_field_width;
@@ -432,6 +449,10 @@ void CL_ConsolePrint( char *txt ) {
 	if ( !Q_strncmp( txt, "[skipnotify]", 12 ) ) {
 		skipnotify = qtrue;
 		txt += 12;
+	}
+	if ( txt[0] == '*' ) {
+		skipnotify = qtrue;
+		txt += 1;
 	}
 	
 	// for some demos we don't want to ever show anything on the console
@@ -559,8 +580,8 @@ void Con_DrawNotify (void)
 	int		skip;
 	int		currentColor;
 
-	currentColor = 7;
-	re.SetColor( g_color_table[currentColor] );
+	currentColor = COLOR_WHITE;
+	re.SetColor( ColorForIndex( currentColor ) );
 
 	v = 0;
 	for (i= con.current-NUM_CON_TIMES+1 ; i<=con.current ; i++)
@@ -571,7 +592,7 @@ void Con_DrawNotify (void)
 		if (time == 0)
 			continue;
 		time = cls.realtime - time;
-		if (time > con_notifytime->value*1000)
+		if (time > notify_time->value*1000)
 			continue;
 		text = con.text + (i % con.totallines)*con.linewidth;
 
@@ -583,11 +604,11 @@ void Con_DrawNotify (void)
 			if ( ( text[x] & 0xff ) == ' ' ) {
 				continue;
 			}
-			if ( ( (text[x]>>8)&7 ) != currentColor ) {
-				currentColor = (text[x]>>8)&7;
-				re.SetColor( g_color_table[currentColor] );
+			if ( ( ColorIndex(text[x]>>8) ) != currentColor ) {
+				currentColor = ColorIndex(text[x]>>8);
+				re.SetColor( ColorForIndex( currentColor ) );
 			}
-			SCR_DrawSmallChar( cl_conXOffset->integer + con.xadjust + (x+1)*SMALLCHAR_WIDTH, v, text[x] & 0xff );
+			SCR_DrawSmallChar( notify_xoffset->integer + con.xadjust + (x+1)*SMALLCHAR_WIDTH, v, text[x] & 0xff );
 		}
 
 		v += SMALLCHAR_HEIGHT;
@@ -602,15 +623,19 @@ void Con_DrawNotify (void)
 	// draw the chat line
 	if ( Key_GetCatcher( ) & KEYCATCH_MESSAGE )
 	{
+		const char *say = SE_GetString("MP_SVGAME_SAY");
+		const char *say_team = SE_GetString("MP_SVGAME_SAY_TEAM");
+		int saylen = strlen(say) + 1;
+		int teamlen = strlen(say_team) + 1;
 		if (chat_team)
 		{
-			SCR_DrawBigString (8, v, "say_team:", 1.0f, qfalse );
-			skip = 10;
+			SCR_DrawBigString (8, v, say_team, 1.0f, qfalse );
+			skip = teamlen;
 		}
 		else
 		{
-			SCR_DrawBigString (8, v, "say:", 1.0f, qfalse );
-			skip = 5;
+			SCR_DrawBigString (8, v, say, 1.0f, qfalse );
+			skip = saylen;
 		}
 
 		Field_BigDraw( &chatField, skip * BIGCHAR_WIDTH, v,
@@ -655,19 +680,28 @@ void Con_DrawSolidConsole( float frac ) {
 		y = 0;
 	}
 	else {
-		SCR_DrawPic( 0, 0, SCREEN_WIDTH, y, cls.consoleShader );
+		if( con_background->integer ) {
+			SCR_DrawPic( 0, 0, SCREEN_WIDTH, y, cls.consoleShader );
+		}
+		else {
+			color[0] = 0;
+			color[1] = 0;
+			color[2] = 0;
+			color[3] = con_opacity->value;
+			SCR_FillRect( 0, 0, SCREEN_WIDTH, y, color );
+		}
 	}
-
-	color[0] = 1;
-	color[1] = 0;
-	color[2] = 0;
+	
+	color[0] = 0;
+	color[1] = 0.5f;
+	color[2] = 1;
 	color[3] = 1;
 	SCR_FillRect( 0, y, SCREEN_WIDTH, 2, color );
 
 
 	// draw the version number
 
-	re.SetColor( g_color_table[ColorIndex(COLOR_RED)] );
+	re.SetColor( color );
 
 	i = strlen( Q3_VERSION );
 
@@ -687,7 +721,7 @@ void Con_DrawSolidConsole( float frac ) {
 	if (con.display != con.current)
 	{
 	// draw arrows to show the buffer is backscrolled
-		re.SetColor( g_color_table[ColorIndex(COLOR_RED)] );
+		re.SetColor( color );
 		for (x=0 ; x<con.linewidth ; x+=4)
 			SCR_DrawSmallChar( con.xadjust + (x+1)*SMALLCHAR_WIDTH, y, '^' );
 		y -= SMALLCHAR_HEIGHT;
@@ -700,8 +734,8 @@ void Con_DrawSolidConsole( float frac ) {
 		row--;
 	}
 
-	currentColor = 7;
-	re.SetColor( g_color_table[currentColor] );
+	currentColor = ColorIndex( COLOR_WHITE );
+	re.SetColor( ColorForIndex( currentColor ) );
 
 	for (i=0 ; i<rows ; i++, y -= SMALLCHAR_HEIGHT, row--)
 	{
@@ -719,9 +753,9 @@ void Con_DrawSolidConsole( float frac ) {
 				continue;
 			}
 
-			if ( ( (text[x]>>8)&7 ) != currentColor ) {
-				currentColor = (text[x]>>8)&7;
-				re.SetColor( g_color_table[currentColor] );
+			if ( ( ColorIndex(text[x]>>8)  ) != currentColor ) {
+				currentColor = ColorIndex(text[x]>>8);
+				re.SetColor( ColorForIndex( currentColor ) );
 			}
 			SCR_DrawSmallChar(  con.xadjust + (x+1)*SMALLCHAR_WIDTH, y, text[x] & 0xff );
 		}
@@ -774,21 +808,21 @@ Scroll it up or down
 void Con_RunConsole (void) {
 	// decide on the destination height of the console
 	if ( Key_GetCatcher( ) & KEYCATCH_CONSOLE )
-		con.finalFrac = 0.5;		// half screen
+		con.finalFrac = con_height->value;		// half screen
 	else
 		con.finalFrac = 0;				// none visible
 	
 	// scroll towards the destination height
 	if (con.finalFrac < con.displayFrac)
 	{
-		con.displayFrac -= con_conspeed->value*cls.realFrametime*0.001;
+		con.displayFrac -= con_speed->value*cls.realFrametime*0.001;
 		if (con.finalFrac > con.displayFrac)
 			con.displayFrac = con.finalFrac;
 
 	}
 	else if (con.finalFrac > con.displayFrac)
 	{
-		con.displayFrac += con_conspeed->value*cls.realFrametime*0.001;
+		con.displayFrac += con_speed->value*cls.realFrametime*0.001;
 		if (con.finalFrac < con.displayFrac)
 			con.displayFrac = con.finalFrac;
 	}

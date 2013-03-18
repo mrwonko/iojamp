@@ -343,6 +343,8 @@ set(IojampSrcFiles
 	"${ClientDir}/snd_local.h"
 	"${ClientDir}/snd_public.h"
 	
+	"${CommonDir}/stringed.c"
+	
 	"${ClientDir}/snd_adpcm.c"
 	"${ClientDir}/snd_dma.c"
 	"${ClientDir}/snd_mem.c"
