@@ -245,7 +245,9 @@ static void S_AL_BufferUseDefault(sfxHandle_t sfx)
 	if(sfx == default_sfx)
 		Com_Error(ERR_FATAL, "Can't load default sound effect %s", knownSfx[sfx].filename);
 
-	Com_Printf( S_COLOR_YELLOW "WARNING: Using default sound for %s\n", knownSfx[sfx].filename);
+	if( !!S_Get_ShutUp() ){
+		Com_Printf( S_COLOR_YELLOW "WARNING: Using default sound for %s\n", knownSfx[sfx].filename);
+	}
 	knownSfx[sfx].isDefault = qtrue;
 	knownSfx[sfx].buffer = knownSfx[default_sfx].buffer;
 }
@@ -444,7 +446,7 @@ qboolean S_AL_BufferInit( void )
 	numSfx = 0;
 
 	// Load the default sound, and lock it
-	default_sfx = S_AL_BufferFind("sound/feedback/hit.wav");
+	default_sfx = S_AL_BufferFind("sound/null.wav");
 	S_AL_BufferUse(default_sfx);
 	knownSfx[default_sfx].isLocked = qtrue;
 
@@ -488,7 +490,23 @@ S_AL_RegisterSound
 static
 sfxHandle_t S_AL_RegisterSound( const char *sample, qboolean compressed )
 {
-	sfxHandle_t sfx = S_AL_BufferFind(sample);
+	sfxHandle_t sfx;
+
+	if ( !sample ) {
+		Com_Error( ERR_FATAL, "Sound name is NULL" );
+	}
+
+	if ( !sample[0] ) {
+		Com_Printf( S_COLOR_YELLOW "WARNING: S_RegisterSound: empty name\n" );
+		return 0;
+	}
+
+	if ( strlen( sample ) >= MAX_QPATH ) {
+		Com_Printf( S_COLOR_YELLOW "WARNING: Sound name too long: %s\n", sample );
+		return 0;
+	}
+	
+	sfx = S_AL_BufferFind(sample);
 
 	if((!knownSfx[sfx].inMemory) && (!knownSfx[sfx].isDefault))
 		S_AL_BufferLoad(sfx, s_alPrecache->integer);
@@ -1188,6 +1206,28 @@ void S_AL_StartLocalSound(sfxHandle_t sfx, int channel)
 	// Start it playing
 	srcList[src].isPlaying = qtrue;
 	qalSourcePlay(srcList[src].alSource);
+}
+
+/* Fixme i don't even know if the openal system even looks at channels much */
+static void S_AL_MuteSound( int entnum, int entchannel )
+{
+	int i;
+
+	if (entnum < 0 || entnum >= MAX_GENTITIES)
+		Com_Error(ERR_DROP, "S_MuteSound: bad entitynum %i", entnum);
+
+	for(i = 0; i < srcCount; i++)
+	{
+		if(!srcList[i].isActive)
+			continue;
+
+		if(srcList[i].entity == entnum && srcList[i].channel == entchannel)
+		{
+			//srcList[i].scaleGain = 0;
+			//S_AL_SrcKill( i );
+			return;
+		}
+	}
 }
 
 /*
@@ -2607,6 +2647,7 @@ qboolean S_AL_Init( soundInterface_t *si )
 #endif
 
 	si->Shutdown = S_AL_Shutdown;
+	si->MuteSound = S_AL_MuteSound;
 	si->StartSound = S_AL_StartSound;
 	si->StartLocalSound = S_AL_StartLocalSound;
 	si->StartBackgroundTrack = S_AL_StartBackgroundTrack;

@@ -36,6 +36,8 @@ cvar_t *s_muteWhenUnfocused;
 
 static soundInterface_t si;
 
+qboolean s_shutUp = qfalse;
+
 /*
 =================
 S_ValidateInterface
@@ -44,6 +46,7 @@ S_ValidateInterface
 static qboolean S_ValidSoundInterface( soundInterface_t *si )
 {
 	if( !si->Shutdown ) return qfalse;
+	if( !si->MuteSound ) return qfalse;
 	if( !si->StartSound ) return qfalse;
 	if( !si->StartLocalSound ) return qfalse;
 	if( !si->StartBackgroundTrack ) return qfalse;
@@ -73,6 +76,35 @@ static qboolean S_ValidSoundInterface( soundInterface_t *si )
 #endif
 
 	return qtrue;
+}
+
+/*
+=================
+S_MuteSound
+=================
+*/
+void S_MuteSound( int entnum, int entchannel )
+{
+	if( si.MuteSound ) {
+		si.MuteSound( entnum, entchannel );
+	}
+}
+
+/*
+=================
+S_ShutUp
+
+Suppress the sound file could not be loaded
+=================
+*/
+void S_ShutUp( qboolean state )
+{
+	s_shutUp = state;
+}
+
+qboolean S_Get_ShutUp( void )
+{
+	return s_shutUp;
 }
 
 /*
@@ -394,6 +426,17 @@ void S_MasterGain( float gain )
 //=============================================================================
 
 /*
+==================
+S_CompleteSoundName
+==================
+*/
+static void S_CompleteSoundName( char *args, int argNum ) {
+	if( argNum >= 2 ) {
+		Field_CompleteFilename( "sound", "", qfalse, qfalse );
+	}
+}
+
+/*
 =================
 S_Play_f
 =================
@@ -449,8 +492,19 @@ void S_Music_f( void ) {
 }
 
 /*
+==================
+S_CompleteMusicName
+==================
+*/
+static void S_CompleteMusicName( char *args, int argNum ) {
+	if( argNum == 2 || argNum == 3 ) {
+		Field_CompleteFilename( "music", "", qfalse, qfalse );
+	}
+}
+
+/*
 =================
-S_Music_f
+S_StopMusic_f
 =================
 */
 void S_StopMusic_f( void )
@@ -492,7 +546,9 @@ void S_Init( void )
 		S_CodecInit( );
 
 		Cmd_AddCommand( "play", S_Play_f );
+		Cmd_SetCommandCompletionFunc( "play", S_CompleteSoundName );
 		Cmd_AddCommand( "music", S_Music_f );
+		Cmd_SetCommandCompletionFunc( "music", S_CompleteMusicName );
 		Cmd_AddCommand( "stopmusic", S_StopMusic_f );
 		Cmd_AddCommand( "s_list", S_SoundList );
 		Cmd_AddCommand( "s_stop", S_StopAllSounds );

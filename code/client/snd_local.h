@@ -74,7 +74,9 @@ typedef struct {
 
 #define MAX_DOPPLER_SCALE 50.0f //arbitrary
 
-#define THIRD_PERSON_THRESHOLD_SQ (48.0f*48.0f)
+// Ensiform: Changing from 48x48 to 128x128 because JA cg_thirdPersonRange default is 80 rather than Q3's 40
+// mrwonko: outdated comment much?
+#define THIRD_PERSON_THRESHOLD_SQ (160.0f*160.0f)
 
 typedef struct loopSound_s {
 	vec3_t		origin;
@@ -124,6 +126,7 @@ typedef struct {
 typedef struct
 {
 	void (*Shutdown)(void);
+	void (*MuteSound)( int entnum, int entchannel );
 	void (*StartSound)( vec3_t origin, int entnum, int entchannel, sfxHandle_t sfx );
 	void (*StartLocalSound)( sfxHandle_t sfx, int channelNum );
 	void (*StartBackgroundTrack)( const char *intro, const char *loop );
@@ -199,6 +202,8 @@ extern cvar_t *s_muted;
 extern cvar_t *s_doppler;
 
 extern cvar_t *s_testsound;
+
+extern qboolean s_shutUp;
 
 qboolean S_LoadSound( sfx_t *sfx );
 

@@ -361,7 +361,9 @@ sfxHandle_t	S_Base_RegisterSound( const char *name, qboolean compressed ) {
 
 	if ( sfx->soundData ) {
 		if ( sfx->defaultSound ) {
-			Com_Printf( S_COLOR_YELLOW "WARNING: could not find %s - using default\n", sfx->soundName );
+			if( !S_Get_ShutUp() ) {
+				Com_Printf( S_COLOR_YELLOW "WARNING: could not find %s - using default\n", sfx->soundName );
+			}
 			return 0;
 		}
 		return sfx - s_knownSfx;
@@ -370,10 +372,12 @@ sfxHandle_t	S_Base_RegisterSound( const char *name, qboolean compressed ) {
 	sfx->inMemory = qfalse;
 	sfx->soundCompressed = compressed;
 
-  S_memoryLoad(sfx);
+	S_memoryLoad(sfx);
 
 	if ( sfx->defaultSound ) {
-		Com_Printf( S_COLOR_YELLOW "WARNING: could not find %s - using default\n", sfx->soundName );
+		if( !S_Get_ShutUp() ) {
+			Com_Printf( S_COLOR_YELLOW "WARNING: could not find %s - using default\n", sfx->soundName );
+		}
 		return 0;
 	}
 
@@ -395,7 +399,7 @@ void S_Base_BeginRegistration( void ) {
 		Com_Memset(s_knownSfx, '\0', sizeof(s_knownSfx));
 		Com_Memset(sfxHash, '\0', sizeof(sfx_t *) * LOOP_HASH);
 
-		S_Base_RegisterSound("sound/feedback/hit.wav", qfalse);		// changed to a sound in baseq3
+		S_Base_RegisterSound("sound/null.wav", qfalse);		// changed to a sound in baseq3
 	}
 }
 
@@ -467,6 +471,29 @@ void S_SpatializeOrigin (vec3_t origin, int master_vol, int *left_vol, int *righ
 	*left_vol = (master_vol * scale);
 	if (*left_vol < 0)
 		*left_vol = 0;
+}
+
+void S_Base_MuteSound(int entityNum, int entchannel) {
+	channel_t	*ch;
+	int i;
+
+	if ( !s_soundStarted || s_soundMuted ) {
+		return;
+	}
+
+	if ( entityNum < 0 || entityNum >= MAX_GENTITIES ) {
+		Com_Error( ERR_DROP, "S_MuteSound: bad entitynum %i", entityNum );
+	}
+
+	ch = s_channels;
+
+	for ( i = 0; i < MAX_CHANNELS ; i++, ch++ ) {		
+		if (ch->entnum == entityNum && ch->entchannel == entchannel) {
+			ch->master_vol = ch->leftvol = ch->rightvol = 0;
+			//S_ChannelFree(ch);
+			return;
+		}
+	}
 }
 
 // =======================================================================
@@ -1400,10 +1427,13 @@ void S_Base_StartBackgroundTrack( const char *intro, const char *loop ){
 		Com_Printf( S_COLOR_YELLOW "WARNING: couldn't open music file %s\n", intro );
 		return;
 	}
-
+	
+#if 0
+	/* JA uses mp3s which doesn't have 22k stereo music files */
 	if(s_backgroundStream->info.channels != 2 || s_backgroundStream->info.rate != 22050) {
 		Com_Printf(S_COLOR_YELLOW "WARNING: music file %s is not 22k stereo\n", intro );
 	}
+#endif
 }
 
 /*
@@ -1573,6 +1603,7 @@ qboolean S_Base_Init( soundInterface_t *si ) {
 	}
 
 	si->Shutdown = S_Base_Shutdown;
+	si->MuteSound = S_Base_MuteSound;
 	si->StartSound = S_Base_StartSound;
 	si->StartLocalSound = S_Base_StartLocalSound;
 	si->StartBackgroundTrack = S_Base_StartBackgroundTrack;
