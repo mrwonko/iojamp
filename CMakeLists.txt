@@ -209,6 +209,7 @@ if(UseInternalPng)
 		"${PngDir}/pngpriv.h"
 		"${PngDir}/pngstruct.h"
 		)
+	set(CommonRendererIncludeDirs ${CommonRendererIncludeDirs} ${PngDir})
 else(UseInternalPng)
 	find_package(PNG REQUIRED)
 	set(CommonRendererDefines ${CommonRendererDefines} ${PNG_DEFINITIONS}) #not actually used, but let
