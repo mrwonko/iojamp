@@ -98,13 +98,17 @@ int		MSG_LookaheadByte (msg_t *msg);
 void MSG_WriteDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *to );
 void MSG_ReadDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *to );
 
+void MSG_LoadEntitystateOverrides( void );
+
 void MSG_WriteDeltaEntity( msg_t *msg, struct entityState_s *from, struct entityState_s *to
 						   , qboolean force );
 void MSG_ReadDeltaEntity( msg_t *msg, entityState_t *from, entityState_t *to, 
 						 int number );
 
-void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct playerState_s *to );
-void MSG_ReadDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct playerState_s *to );
+void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct playerState_s *to, qboolean isVehiclePS );
+void MSG_ReadDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct playerState_s *to, qboolean isVehiclePS );
+
+void MSG_LoadPlayerstateOverrides( void );
 
 
 void MSG_ReportChangeVectors_f( void );
@@ -137,7 +141,7 @@ NET
 
 #define	PORT_ANY			-1
 
-#define	MAX_RELIABLE_COMMANDS	64			// max string commands buffered for restransmit
+#define	MAX_RELIABLE_COMMANDS	128			// max string commands buffered for restransmit
 
 typedef enum {
 	NA_BAD = 0,					// an address lookup failed
@@ -188,8 +192,9 @@ void		NET_LeaveMulticast6(void);
 void		NET_Sleep(int msec);
 
 
-#define	MAX_MSGLEN				16384		// max length of a message, which may
+#define	MAX_MSGLEN				49152		// max length of a message, which may
 											// be fragmented into multiple packets
+//rww - 6/28/02 - Changed from 16384 to match sof2's. This does seem rather huge, but I guess it doesn't really hurt anything.
 
 #define MAX_DOWNLOAD_WINDOW		48	// ACK window of 48 download chunks. Cannot set this higher, or clients
 						// will overflow the reliable commands buffer
@@ -251,34 +256,30 @@ PROTOCOL
 ==============================================================
 */
 
-#define	PROTOCOL_VERSION	71
-#define PROTOCOL_LEGACY_VERSION	68
-// 1.31 - 67
+#define	PROTOCOL_VERSION	27
+#define PROTOCOL_LEGACY_VERSION	26
+// 1.0.1.0 - 26
 
 // maintain a list of compatible protocols for demo playing
 // NOTE: that stuff only works with two digits protocols
 extern int demo_protocols[];
 
 #if !defined UPDATE_SERVER_NAME && !defined STANDALONE
-#define	UPDATE_SERVER_NAME	"update.quake3arena.com"
+#define	UPDATE_SERVER_NAME	"updatejk3.ravensoft.com"
 #endif
 // override on command line, config files etc.
 #ifndef MASTER_SERVER_NAME
-#define MASTER_SERVER_NAME	"master.quake3arena.com"
+#define MASTER_SERVER_NAME	"masterjk3.ravensoft.com"
 #endif
 
-#ifndef STANDALONE
-  #ifndef AUTHORIZE_SERVER_NAME
-    #define	AUTHORIZE_SERVER_NAME	"authorize.quake3arena.com"
-  #endif
-  #ifndef PORT_AUTHORIZE
-  #define	PORT_AUTHORIZE		27952
-  #endif
-#endif
+#define JKHUB_MASTER_SERVER_NAME	"master.jkhub.org"
+#define JKHUB_UPDATE_SERVER_NAME	"master.jkhub.org:29060"
 
-#define	PORT_MASTER			27950
-#define	PORT_UPDATE			27951
-#define	PORT_SERVER			27960
+#define IOQ3_MASTER_SERVER_NAME		"master.ioquake3.org:27950"
+
+#define	PORT_MASTER			29060
+#define	PORT_UPDATE			29061
+#define	PORT_SERVER			29070
 #define	NUM_SERVER_PORTS	4		// broadcast scan this many ports after
 									// PORT_SERVER so a single machine can
 									// run multiple servers
@@ -297,6 +298,8 @@ enum svc_ops_e {
 	svc_serverCommand,			// [string] to be executed by client game module
 	svc_download,				// [short] size [size bytes]
 	svc_snapshot,
+	svc_setgame,
+	svc_mapchange,
 	svc_EOF,
 
 // new commands, supported only by ioquake3 protocol but not legacy
@@ -598,16 +601,15 @@ issues.
 #define FS_GENERAL_REF	0x01
 #define FS_UI_REF		0x02
 #define FS_CGAME_REF	0x04
-// number of id paks that will never be autodownloaded from baseq3/missionpack
-#define NUM_ID_PAKS		9
-#define NUM_TA_PAKS		4
+// number of JA paks that will never be autodownloaded from base
+#define NUM_RV_PAKS		4
 
 #define	MAX_FILE_HANDLES	64
 
 #ifdef DEDICATED
-#	define Q3CONFIG_CFG "q3config_server.cfg"
+#	define Q3CONFIG_CFG "jampserver.cfg"
 #else
-#	define Q3CONFIG_CFG "q3config.cfg"
+#	define Q3CONFIG_CFG "jampconfig.cfg"
 #endif
 
 qboolean FS_Initialized( void );
@@ -633,6 +635,8 @@ qboolean FS_FileExists( const char *file );
 qboolean FS_CreatePath (char *OSPath);
 
 vmInterpret_t FS_FindVM(void **startSearch, char *found, int foundlen, const char *name, int enableDll);
+
+qboolean FS_FindPureDLL(const char *name);
 
 char   *FS_BuildOSPath( const char *base, const char *game, const char *qpath );
 qboolean FS_CompareZipChecksum(const char *zipfile);
@@ -765,6 +769,8 @@ void Field_AutoComplete( field_t *edit );
 void Field_CompleteKeyname( void );
 void Field_CompleteFilename( const char *dir,
 		const char *ext, qboolean stripExt, qboolean allowNonPureFilesOnDisk );
+void Field_CompletePlayerID( void );
+void Field_CompletePlayerName( void );
 void Field_CompleteCommand( char *cmd,
 		qboolean doCommands, qboolean doCvars );
 
@@ -775,10 +781,6 @@ MISC
 
 ==============================================================
 */
-
-// centralizing the declarations for cl_cdkey
-// https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=470
-extern char cl_cdkey[34];
 
 // returned by Sys_GetProcessorFeatures
 typedef enum
@@ -1048,11 +1050,13 @@ int SV_FrameMsec(void);
 qboolean SV_GameCommand( void );
 int SV_SendQueuedPackets(void);
 
+void SV_PlayerIDCompletion( void(*callback)(const char *s) );
+void SV_PlayerNameCompletion( void(*callback)(const char *s) );
+
 //
 // UI interface
 //
 qboolean UI_GameCommand( void );
-qboolean UI_usesUniqueCDKey(void);
 
 /*
 ==============================================================
@@ -1223,5 +1227,10 @@ extern huffman_t clientHuffTables;
 #define DLF_NO_REDIRECT 2
 #define DLF_NO_UDP 4
 #define DLF_NO_DISCONNECT 8
+
+char *SE_GetString( const char *compare );
+int SE_GetStringBuffer( const char *compare, char *buffer, int bufferSize );
+void SE_Init( void );
+void SE_Shutdown( void );
 
 #endif // _QCOMMON_H_

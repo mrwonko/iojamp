@@ -57,6 +57,7 @@ cvar_t	*cl_debugMove;
 cvar_t	*cl_noprint;
 #ifdef UPDATE_SERVER_NAME
 cvar_t	*cl_motd;
+cvar_t	*cl_motdServer[MAX_MASTER_SERVERS];
 #endif
 
 cvar_t	*rcon_client_password;
@@ -87,6 +88,7 @@ cvar_t	*cl_mouseAccelStyle;
 cvar_t	*cl_showMouseRate;
 
 cvar_t	*m_pitch;
+cvar_t	*m_pitchVeh;
 cvar_t	*m_yaw;
 cvar_t	*m_forward;
 cvar_t	*m_side;
@@ -108,7 +110,6 @@ cvar_t	*cl_activeAction;
 cvar_t	*cl_motdString;
 
 cvar_t	*cl_allowDownload;
-cvar_t	*cl_conXOffset;
 cvar_t	*cl_inGameVideo;
 
 cvar_t	*cl_serverStatusResendTime;
@@ -121,6 +122,8 @@ cvar_t	*cl_guidServerUniq;
 cvar_t	*cl_consoleKeys;
 
 cvar_t	*cl_rate;
+
+cvar_t	*cl_drawRadar;
 
 clientActive_t		cl;
 clientConnection_t	clc;
@@ -1229,6 +1232,8 @@ void CL_ShutdownAll(qboolean shutdownRef)
 	CL_ShutdownCGame();
 	// shutdown UI
 	CL_ShutdownUI();
+	// shutdown the fx
+	FX_Shutdown();
 
 	// shutdown the renderer
 	if(shutdownRef)
@@ -1239,6 +1244,7 @@ void CL_ShutdownAll(qboolean shutdownRef)
 	cls.uiStarted = qfalse;
 	cls.cgameStarted = qfalse;
 	cls.rendererStarted = qfalse;
+	cls.fxStarted = qfalse;
 	cls.soundRegistered = qfalse;
 }
 
@@ -1359,9 +1365,9 @@ static void CL_UpdateGUID( const char *prefix, int prefix_len )
 	FS_FCloseFile( f );
 
 	if( len != QKEY_SIZE ) 
-		Cvar_Set( "cl_guid", "" );
+		Cvar_Set( "ja_guid", "" );
 	else
-		Cvar_Set( "cl_guid", Com_MD5File( QKEY_FILE, QKEY_SIZE,
+		Cvar_Set( "ja_guid", Com_MD5File( QKEY_FILE, QKEY_SIZE,
 			prefix, prefix_len ) );
 }
 
@@ -1532,21 +1538,44 @@ CL_RequestMotd
 */
 void CL_RequestMotd( void ) {
 #ifdef UPDATE_SERVER_NAME
-	char		info[MAX_INFO_STRING];
+	netadr_t	to;
+	int			i, motdNum;
+	char		command[MAX_STRING_CHARS], info[MAX_INFO_STRING];
+	char		*motdaddress;
 
 	if ( !cl_motd->integer ) {
 		return;
 	}
-	Com_Printf( "Resolving %s\n", UPDATE_SERVER_NAME );
-	if ( !NET_StringToAdr( UPDATE_SERVER_NAME, &cls.updateServer, NA_IP ) ) {
-		Com_Printf( "Couldn't resolve address\n" );
+
+	motdNum = cl_motd->integer;
+
+	if (motdNum < 1 || motdNum > MAX_MASTER_SERVERS) {
+		Com_Printf("CL_RequestMotd: Invalid motd server num. Valid values are 1-%d\n", MAX_MASTER_SERVERS);
 		return;
 	}
-	cls.updateServer.port = BigShort( PORT_UPDATE );
-	Com_Printf( "%s resolved to %i.%i.%i.%i:%i\n", UPDATE_SERVER_NAME,
-		cls.updateServer.ip[0], cls.updateServer.ip[1],
-		cls.updateServer.ip[2], cls.updateServer.ip[3],
-		BigShort( cls.updateServer.port ) );
+
+	Com_sprintf(command, sizeof(command), "cl_motdServer%d", motdNum);
+	motdaddress = Cvar_VariableString(command);
+
+	if(!*motdaddress)
+	{
+		Com_Printf( "CL_RequestMotd: Error: No motd server address given.\n");
+		return;	
+	}
+
+	i = NET_StringToAdr(motdaddress, &to, NA_UNSPEC);
+
+	if(!i)
+	{
+		Com_Printf( "CL_RequestMotd: Error: could not resolve address of motd server %s\n", motdaddress);
+		return;	
+	}
+	else if(i == 2)
+		to.port = BigShort(PORT_UPDATE);
+
+	Com_Printf("Requesting motd from update %s...\n", motdaddress);
+
+	cls.updateServer = to;
 	
 	info[0] = 0;
 
@@ -1560,89 +1589,6 @@ void CL_RequestMotd( void ) {
 #endif
 }
 
-/*
-===================
-CL_RequestAuthorization
-
-Authorization server protocol
------------------------------
-
-All commands are text in Q3 out of band packets (leading 0xff 0xff 0xff 0xff).
-
-Whenever the client tries to get a challenge from the server it wants to
-connect to, it also blindly fires off a packet to the authorize server:
-
-getKeyAuthorize <challenge> <cdkey>
-
-cdkey may be "demo"
-
-
-#OLD The authorize server returns a:
-#OLD 
-#OLD keyAthorize <challenge> <accept | deny>
-#OLD 
-#OLD A client will be accepted if the cdkey is valid and it has not been used by any other IP
-#OLD address in the last 15 minutes.
-
-
-The server sends a:
-
-getIpAuthorize <challenge> <ip>
-
-The authorize server returns a:
-
-ipAuthorize <challenge> <accept | deny | demo | unknown >
-
-A client will be accepted if a valid cdkey was sent by that ip (only) in the last 15 minutes.
-If no response is received from the authorize server after two tries, the client will be let
-in anyway.
-===================
-*/
-#ifndef STANDALONE
-void CL_RequestAuthorization( void ) {
-	char	nums[64];
-	int		i, j, l;
-	cvar_t	*fs;
-
-	if ( !cls.authorizeServer.port ) {
-		Com_Printf( "Resolving %s\n", AUTHORIZE_SERVER_NAME );
-		if ( !NET_StringToAdr( AUTHORIZE_SERVER_NAME, &cls.authorizeServer, NA_IP ) ) {
-			Com_Printf( "Couldn't resolve address\n" );
-			return;
-		}
-
-		cls.authorizeServer.port = BigShort( PORT_AUTHORIZE );
-		Com_Printf( "%s resolved to %i.%i.%i.%i:%i\n", AUTHORIZE_SERVER_NAME,
-			cls.authorizeServer.ip[0], cls.authorizeServer.ip[1],
-			cls.authorizeServer.ip[2], cls.authorizeServer.ip[3],
-			BigShort( cls.authorizeServer.port ) );
-	}
-	if ( cls.authorizeServer.type == NA_BAD ) {
-		return;
-	}
-
-	// only grab the alphanumeric values from the cdkey, to avoid any dashes or spaces
-	j = 0;
-	l = strlen( cl_cdkey );
-	if ( l > 32 ) {
-		l = 32;
-	}
-	for ( i = 0 ; i < l ; i++ ) {
-		if ( ( cl_cdkey[i] >= '0' && cl_cdkey[i] <= '9' )
-				|| ( cl_cdkey[i] >= 'a' && cl_cdkey[i] <= 'z' )
-				|| ( cl_cdkey[i] >= 'A' && cl_cdkey[i] <= 'Z' )
-			 ) {
-			nums[j] = cl_cdkey[i];
-			j++;
-		}
-	}
-	nums[j] = 0;
-
-	fs = Cvar_Get ("cl_anonymous", "0", CVAR_INIT|CVAR_SYSTEMINFO );
-
-	NET_OutOfBandPrint(NS_CLIENT, cls.authorizeServer, "getKeyAuthorize %i %s", fs->integer, nums );
-}
-#endif
 /*
 ======================================================================
 
@@ -1788,6 +1734,7 @@ void CL_Connect_f( void ) {
 
 	// server connection string
 	Cvar_Set( "cl_currentServerAddress", server );
+	Cvar_Set( "cl_currentServerIP", serverString );
 }
 
 #define MAX_RCON_MESSAGE 1024
@@ -1924,6 +1871,8 @@ void CL_Vid_Restart_f( void ) {
 		CL_ShutdownUI();
 		// shutdown the CGame
 		CL_ShutdownCGame();
+		// shutdown the fx
+		FX_Shutdown();
 		// shutdown the renderer and clear the renderer interface
 		CL_ShutdownRef();
 		// client is no longer pure untill new checksums are sent
@@ -1933,6 +1882,7 @@ void CL_Vid_Restart_f( void ) {
 		// reinitialize the filesystem if the game directory or checksum has changed
 
 		cls.rendererStarted = qfalse;
+		cls.fxStarted = qfalse;
 		cls.uiStarted = qfalse;
 		cls.cgameStarted = qfalse;
 		cls.soundRegistered = qfalse;
@@ -2326,11 +2276,6 @@ void CL_CheckForResend( void ) {
 	switch ( clc.state ) {
 	case CA_CONNECTING:
 		// requesting a challenge .. IPv6 users always get in as authorize server supports no ipv6.
-#ifndef STANDALONE
-		if (!com_standalone->integer && clc.serverAddress.type == NA_IP && !Sys_IsLANAddress( clc.serverAddress ) )
-			CL_RequestAuthorization();
-#endif
-
 		// The challenge request shall be followed by a client challenge so no malicious server can hijack this connection.
 		// Add the gamename so the server knows we're running the correct game or can reject the client
 		// with a meaningful message
@@ -2555,6 +2500,31 @@ void CL_ServersResponsePacket( const netadr_t* from, msg_t *msg, qboolean extend
 }
 
 /*
+===================
+CL_PrintPacket
+===================
+*/
+void CL_PrintPacket( netadr_t from, msg_t *msg ) {
+	char *s;
+	int len;
+	//static char reference[MAX_QPATH];
+	s = MSG_ReadString( msg );
+
+	len = strlen( s );
+
+	if( len > 3 && s[0] == '@' && s[1] == '@' && s[2] == '@' ) {
+		Q_strncpyz( clc.serverMessage, SE_GetString(va("MP_SVGAME_%s", s+3)), sizeof( clc.serverMessage ) );
+		//Com_sprintf(reference, sizeof(reference), "MP_SVGAME_%s", s+3);
+		//s = SE_GetString( reference );
+		//if(*reference)
+		//	strcpy(s, reference);
+		//loc = SE_GetString( va("MP_SVGAME_%s", s+3) );
+	}
+	Q_strncpyz( clc.serverMessage, s, sizeof( clc.serverMessage ) );
+	Com_Printf( "%s", s );
+}
+
+/*
 =================
 CL_ConnectionlessPacket
 
@@ -2742,11 +2712,7 @@ void CL_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 
 	// echo request from server
 	if(!Q_stricmp(c, "print")){
-		s = MSG_ReadString( msg );
-		
-		Q_strncpyz( clc.serverMessage, s, sizeof( clc.serverMessage ) );
-		Com_Printf( "%s", s );
-
+		CL_PrintPacket( from, msg );
 		return;
 	}
 
@@ -2840,7 +2806,7 @@ void CL_CheckTimeout( void ) {
 		&& clc.state >= CA_CONNECTED && clc.state != CA_CINEMATIC
 	    && cls.realtime - clc.lastPacketTime > cl_timeout->value*1000) {
 		if (++cl.timeoutcount > 5) {	// timeoutcount saves debugger
-			Com_Printf ("\nServer connection timed out.\n");
+			Com_Printf ("\n%s\n", SE_GetString("MP_SVGAME_SERVER_CONNECTION_TIMED_OUT"));
 			CL_Disconnect( qtrue );
 			return;
 		}
@@ -2925,7 +2891,7 @@ void CL_Frame ( int msec ) {
 	if ( cls.cddialog ) {
 		// bring up the cd error dialog if needed
 		cls.cddialog = qfalse;
-		VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_NEED_CD );
+		//VM_Call( uivm, UI_SET_ACTIVE_MENU, UIMENU_NEED_CD );
 	} else	if ( clc.state == CA_DISCONNECTED && !( Key_GetCatcher( ) & KEYCATCH_UI )
 		&& !com_sv_running->integer && uivm ) {
 		// if disconnected, bring up the menu
@@ -3079,6 +3045,52 @@ void CL_ShutdownRef( void ) {
 
 /*
 ============
+CL_DrawLoadingScreenFrame
+
+Borrowed from TurtleArena
+============
+*/
+void CL_DrawLoadingScreenFrame( stereoFrame_t stereoFrame ) {
+	re.BeginFrame( stereoFrame );
+
+	// Need to draw extra stuff or screen is completely white for some shaders.
+	re.SetColor( ColorForIndex( ColorIndex( COLOR_BLACK ) ) );
+	re.DrawStretchPic( 0, 0, cls.glconfig.vidWidth, cls.glconfig.vidHeight, 0, 0, 0, 0, cls.whiteShader );
+	re.SetColor( NULL );
+
+	SCR_DrawPic( 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, cls.splashShader );
+}
+
+/*
+============
+CL_DrawLoadingScreen
+
+Borrowed from TurtleArena
+============
+*/
+void CL_DrawLoadingScreen( void ) {
+	// XXX
+	int in_anaglyphMode = Cvar_VariableIntegerValue("r_anaglyphMode");
+	// get loading shader
+	cls.splashShader = re.RegisterShaderNoMip( "menu/splash" );
+
+	// if running in stereo, we need to draw the frame twice
+	if ( cls.glconfig.stereoEnabled || in_anaglyphMode) {
+		CL_DrawLoadingScreenFrame( STEREO_LEFT );
+		CL_DrawLoadingScreenFrame( STEREO_RIGHT );
+	} else {
+		CL_DrawLoadingScreenFrame( STEREO_CENTER );
+	}
+
+	if( com_speeds->integer ) {
+		re.EndFrame( &time_frontend, &time_backend );
+	} else {
+		re.EndFrame( NULL, NULL );
+	}
+}
+
+/*
+============
 CL_InitRenderer
 ============
 */
@@ -3086,10 +3098,18 @@ void CL_InitRenderer( void ) {
 	// this sets up the renderer and calls R_Init
 	re.BeginRegistration( &cls.glconfig );
 
-	// load character sets
-	cls.charSetShader = re.RegisterShader( "gfx/2d/bigchars" );
 	cls.whiteShader = re.RegisterShader( "white" );
-	cls.consoleShader = re.RegisterShader( "console" );
+
+	// draw loading screen when the game is starting up
+	/* Borrowed from TurtleArena */
+	if (!cls.drawnLoadingScreen) {
+		CL_DrawLoadingScreen();
+		cls.drawnLoadingScreen = qtrue;
+	}
+	
+	// load character sets
+	cls.charSetShader = re.RegisterShaderNoMip( "gfx/2d/charsgrid_med" );
+cls.consoleShader = re.RegisterShader( "console" );
 	g_console_field_width = cls.glconfig.vidWidth / SMALLCHAR_WIDTH - 2;
 	g_consoleField.widthInChars = g_console_field_width;
 }
@@ -3114,6 +3134,11 @@ void CL_StartHunkUsers( qboolean rendererOnly ) {
 	if ( !cls.rendererStarted ) {
 		cls.rendererStarted = qtrue;
 		CL_InitRenderer();
+	}
+
+	if ( !cls.fxStarted ) {
+		cls.fxStarted = qtrue;
+		FX_Init();
 	}
 
 	if ( rendererOnly ) {
@@ -3212,6 +3237,7 @@ void CL_InitRef( void ) {
 #endif
 	ri.Hunk_AllocateTempMemory = Hunk_AllocateTempMemory;
 	ri.Hunk_FreeTempMemory = Hunk_FreeTempMemory;
+	ri.Hunk_MemoryRemaining = Hunk_MemoryRemaining;
 
 	ri.CM_ClusterPVS = CM_ClusterPVS;
 	ri.CM_DrawDebugSurface = CM_DrawDebugSurface;
@@ -3277,10 +3303,22 @@ void CL_SetModel_f( void ) {
 	arg = Cmd_Argv( 1 );
 	if (arg[0]) {
 		Cvar_Set( "model", arg );
-		Cvar_Set( "headmodel", arg );
 	} else {
 		Cvar_VariableStringBuffer( "model", name, sizeof(name) );
 		Com_Printf("model is set to %s\n", name);
+	}
+}
+
+void CL_SetForce_f( void ) {
+	char	*arg;
+	char	name[256];
+
+	arg = Cmd_Argv( 1 );
+	if (arg[0]) {
+		Cvar_Set( "forcepowers", arg );
+	} else {
+		Cvar_VariableStringBuffer( "forcepowers", name, sizeof(name) );
+		Com_Printf("forcepowers is set to %s\n", name);
 	}
 }
 
@@ -3403,6 +3441,7 @@ CL_Init
 ====================
 */
 void CL_Init( void ) {
+	int index;
 	Com_Printf( "----- Client Initialization -----\n" );
 
 	Con_Init ();
@@ -3423,7 +3462,11 @@ void CL_Init( void ) {
 	//
 	cl_noprint = Cvar_Get( "cl_noprint", "0", 0 );
 #ifdef UPDATE_SERVER_NAME
-	cl_motd = Cvar_Get ("cl_motd", "1", 0);
+	cl_motd = Cvar_Get ("cl_motd", "1", CVAR_ARCHIVE);
+	cl_motdServer[0] = Cvar_Get("cl_motdServer1", UPDATE_SERVER_NAME, 0);
+	cl_motdServer[1] = Cvar_Get("cl_motdServer2", JKHUB_UPDATE_SERVER_NAME, 0);
+	for(index = 2; index < MAX_MASTER_SERVERS; index++)
+		cl_motdServer[index] = Cvar_Get(va("cl_motdServer%d", index + 1), "", CVAR_ARCHIVE);
 #endif
 
 	cl_timeout = Cvar_Get ("cl_timeout", "200", 0);
@@ -3472,7 +3515,6 @@ void CL_Init( void ) {
 	cl_cURLLib = Cvar_Get("cl_cURLLib", DEFAULT_CURL_LIB, CVAR_ARCHIVE);
 #endif
 
-	cl_conXOffset = Cvar_Get ("cl_conXOffset", "0", 0);
 #ifdef MACOS_X
 	// In game video is REALLY slow in Mac OS X right now due to driver slowness
 	cl_inGameVideo = Cvar_Get ("r_inGameVideo", "0", CVAR_ARCHIVE);
@@ -3487,6 +3529,7 @@ void CL_Init( void ) {
 	Cvar_Get ("cg_autoswitch", "1", CVAR_ARCHIVE);
 
 	m_pitch = Cvar_Get ("m_pitch", "0.022", CVAR_ARCHIVE);
+	m_pitchVeh = Cvar_Get ("m_pitchVeh", "0.022", CVAR_ARCHIVE);
 	m_yaw = Cvar_Get ("m_yaw", "0.022", CVAR_ARCHIVE);
 	m_forward = Cvar_Get ("m_forward", "0.25", CVAR_ARCHIVE);
 	m_side = Cvar_Get ("m_side", "0.25", CVAR_ARCHIVE);
@@ -3527,24 +3570,26 @@ void CL_Init( void ) {
 	cl_consoleKeys = Cvar_Get( "cl_consoleKeys", "~ ` 0x7e 0x60", CVAR_ARCHIVE);
 
 	// userinfo
-	Cvar_Get ("name", "UnnamedPlayer", CVAR_USERINFO | CVAR_ARCHIVE );
+	Cvar_Get ("name", "Padawan", CVAR_USERINFO | CVAR_ARCHIVE );
 	cl_rate = Cvar_Get ("rate", "25000", CVAR_USERINFO | CVAR_ARCHIVE );
 	Cvar_Get ("snaps", "20", CVAR_USERINFO | CVAR_ARCHIVE );
-	Cvar_Get ("model", "sarge", CVAR_USERINFO | CVAR_ARCHIVE );
-	Cvar_Get ("headmodel", "sarge", CVAR_USERINFO | CVAR_ARCHIVE );
-	Cvar_Get ("team_model", "james", CVAR_USERINFO | CVAR_ARCHIVE );
-	Cvar_Get ("team_headmodel", "*james", CVAR_USERINFO | CVAR_ARCHIVE );
+	Cvar_Get ("model", "kyle/default", CVAR_USERINFO | CVAR_ARCHIVE );
+	Cvar_Get ("char_color_red",  "255", CVAR_USERINFO | CVAR_ARCHIVE );
+	Cvar_Get ("char_color_green",  "255", CVAR_USERINFO | CVAR_ARCHIVE );
+	Cvar_Get ("char_color_blue",  "255", CVAR_USERINFO | CVAR_ARCHIVE );
 	Cvar_Get ("g_redTeam", "Stroggs", CVAR_SERVERINFO | CVAR_ARCHIVE);
 	Cvar_Get ("g_blueTeam", "Pagans", CVAR_SERVERINFO | CVAR_ARCHIVE);
 	Cvar_Get ("color1",  "4", CVAR_USERINFO | CVAR_ARCHIVE );
-	Cvar_Get ("color2", "5", CVAR_USERINFO | CVAR_ARCHIVE );
+	Cvar_Get ("color2", "4", CVAR_USERINFO | CVAR_ARCHIVE );
+	Cvar_Get ("forcepowers", "7-1-032330000000001333", CVAR_USERINFO | CVAR_ARCHIVE );
 	Cvar_Get ("handicap", "100", CVAR_USERINFO | CVAR_ARCHIVE );
 	Cvar_Get ("teamtask", "0", CVAR_USERINFO );
 	Cvar_Get ("sex", "male", CVAR_USERINFO | CVAR_ARCHIVE );
-	Cvar_Get ("cl_anonymous", "0", CVAR_USERINFO | CVAR_ARCHIVE );
 
 	Cvar_Get ("password", "", CVAR_USERINFO);
 	Cvar_Get ("cg_predictItems", "1", CVAR_USERINFO | CVAR_ARCHIVE );
+
+	cl_drawRadar = Cvar_Get ("cg_drawRadar", "1", CVAR_ARCHIVE );
 
 #ifdef USE_MUMBLE
 	cl_useMumble = Cvar_Get ("cl_useMumble", "0", CVAR_ARCHIVE | CVAR_LATCH);
@@ -3598,6 +3643,7 @@ void CL_Init( void ) {
 	Cmd_AddCommand ("fs_openedList", CL_OpenedPK3List_f );
 	Cmd_AddCommand ("fs_referencedList", CL_ReferencedPK3List_f );
 	Cmd_AddCommand ("model", CL_SetModel_f );
+	Cmd_AddCommand ("forcepowers", CL_SetForce_f );
 	Cmd_AddCommand ("video", CL_Video_f );
 	Cmd_AddCommand ("stopvideo", CL_StopVideo_f );
 	CL_InitRef();
@@ -3609,7 +3655,7 @@ void CL_Init( void ) {
 	Cvar_Set( "cl_running", "1" );
 
 	CL_GenerateQKey();
-	Cvar_Get( "cl_guid", "", CVAR_USERINFO | CVAR_ROM );
+	Cvar_Get( "ja_guid", "", CVAR_USERINFO | CVAR_ROM );
 	CL_UpdateGUID( NULL, 0 );
 
 	Com_Printf( "----- Client Initialization Complete -----\n" );
@@ -3667,6 +3713,7 @@ void CL_Shutdown(char *finalmsg, qboolean disconnect, qboolean quit)
 	Cmd_RemoveCommand ("fs_openedList");
 	Cmd_RemoveCommand ("fs_referencedList");
 	Cmd_RemoveCommand ("model");
+	Cmd_RemoveCommand ("forcepowers");
 	Cmd_RemoveCommand ("video");
 	Cmd_RemoveCommand ("stopvideo");
 
@@ -3696,9 +3743,11 @@ static void CL_SetServerInfo(serverInfo_t *server, const char *info, int ping) {
 			server->netType = atoi(Info_ValueForKey(info, "nettype"));
 			server->minPing = atoi(Info_ValueForKey(info, "minping"));
 			server->maxPing = atoi(Info_ValueForKey(info, "maxping"));
-			server->punkbuster = atoi(Info_ValueForKey(info, "punkbuster"));
 			server->g_humanplayers = atoi(Info_ValueForKey(info, "g_humanplayers"));
-			server->g_needpass = atoi(Info_ValueForKey(info, "g_needpass"));
+			server->g_needpass = atoi(Info_ValueForKey(info, "needpass"));
+			server->fdisable = atoi(Info_ValueForKey(info, "fdisable"));
+			server->wdisable = atoi(Info_ValueForKey(info, "wdisable"));
+			server->truejedi = atoi(Info_ValueForKey(info, "truejedi"));
 		}
 		server->ping = ping;
 	}
@@ -3841,9 +3890,11 @@ void CL_ServerInfoPacket( netadr_t from, msg_t *msg ) {
 	cls.localServers[i].game[0] = '\0';
 	cls.localServers[i].gameType = 0;
 	cls.localServers[i].netType = from.type;
-	cls.localServers[i].punkbuster = 0;
 	cls.localServers[i].g_humanplayers = 0;
 	cls.localServers[i].g_needpass = 0;
+	cls.localServers[i].fdisable = 0;
+	cls.localServers[i].wdisable = 0;
+	cls.localServers[i].truejedi = 0;
 									 
 	Q_strncpyz( info, MSG_ReadString( msg ), MAX_INFO_STRING );
 	if (strlen(info)) {
@@ -4096,14 +4147,15 @@ void CL_GlobalServers_f( void ) {
 	netadr_t	to;
 	int			count, i, masterNum;
 	char		command[1024], *masteraddress;
+	qboolean	dpmaster = qtrue;
 	
 	if ((count = Cmd_Argc()) < 3 || (masterNum = atoi(Cmd_Argv(1))) < 0 || masterNum > MAX_MASTER_SERVERS - 1)
 	{
 		Com_Printf("usage: globalservers <master# 0-%d> <protocol> [keywords]\n", MAX_MASTER_SERVERS - 1);
 		return;	
 	}
-
-	sprintf(command, "sv_master%d", masterNum + 1);
+	
+	Com_sprintf(command, sizeof(command), "sv_master%d", masterNum + 1);
 	masteraddress = Cvar_VariableString(command);
 	
 	if(!*masteraddress)
@@ -4130,6 +4182,10 @@ void CL_GlobalServers_f( void ) {
 	cls.numglobalservers = -1;
 	cls.pingUpdateSource = AS_GLOBAL;
 
+	if(!Q_stricmp(masteraddress, MASTER_SERVER_NAME) || !Q_stricmp(masteraddress, JKHUB_MASTER_SERVER_NAME)) {
+		dpmaster = qfalse;
+	}
+
 	// Use the extended query for IPv6 masters
 	if (to.type == NA_IP6 || to.type == NA_MULTICAST6)
 	{
@@ -4147,8 +4203,14 @@ void CL_GlobalServers_f( void ) {
 		}
 	}
 	else
-		Com_sprintf(command, sizeof(command), "getservers %s %s",
-			com_gamename->string, Cmd_Argv(2));
+	{
+		if(dpmaster)
+			Com_sprintf(command, sizeof(command), "getserversExt %s %s ipv4",
+				com_gamename->string, Cmd_Argv(2));
+		else
+			Com_sprintf(command, sizeof(command), "getservers %s",
+				Cmd_Argv(2));
+	}
 
 	for (i=3; i < count; i++)
 	{
@@ -4540,64 +4602,5 @@ CL_CDKeyValidate
 =================
 */
 qboolean CL_CDKeyValidate( const char *key, const char *checksum ) {
-#ifdef STANDALONE
 	return qtrue;
-#else
-	char	ch;
-	byte	sum;
-	char	chs[3];
-	int i, len;
-
-	len = strlen(key);
-	if( len != CDKEY_LEN ) {
-		return qfalse;
-	}
-
-	if( checksum && strlen( checksum ) != CDCHKSUM_LEN ) {
-		return qfalse;
-	}
-
-	sum = 0;
-	// for loop gets rid of conditional assignment warning
-	for (i = 0; i < len; i++) {
-		ch = *key++;
-		if (ch>='a' && ch<='z') {
-			ch -= 32;
-		}
-		switch( ch ) {
-		case '2':
-		case '3':
-		case '7':
-		case 'A':
-		case 'B':
-		case 'C':
-		case 'D':
-		case 'G':
-		case 'H':
-		case 'J':
-		case 'L':
-		case 'P':
-		case 'R':
-		case 'S':
-		case 'T':
-		case 'W':
-			sum += ch;
-			continue;
-		default:
-			return qfalse;
-		}
-	}
-
-	sprintf(chs, "%02x", sum);
-	
-	if (checksum && !Q_stricmp(chs, checksum)) {
-		return qtrue;
-	}
-
-	if (!checksum) {
-		return qtrue;
-	}
-
-	return qfalse;
-#endif
 }

@@ -73,13 +73,14 @@ typedef struct image_s {
 
 extern	refimport_t		ri;
 extern glconfig_t	glConfig;		// outside of TR since it shouldn't be cleared during ref re-init
+extern glconfig2_t	glConfig2;		// outside of TR since it shouldn't be cleared during ref re-init
 
 // These variables should live inside glConfig but can't because of
 // compatibility issues to the original ID vms.  If you release a stand-alone
 // game and your mod uses tr_types.h from this build you can safely move them
 // to the glconfig_t struct.
 extern qboolean  textureFilterAnisotropic;
-extern int       maxAnisotropy;
+//extern int       maxAnisotropy;
 extern float     displayAspect;
 
 //
@@ -103,7 +104,8 @@ extern cvar_t *r_drawBuffer;
 extern cvar_t *r_swapInterval;
 
 extern cvar_t *r_allowExtensions;				// global enable/disable of OpenGL extensions
-extern cvar_t *r_ext_compressed_textures;		// these control use of specific extensions
+extern cvar_t *r_ext_compress_textures;		// these control use of specific extensions
+extern cvar_t *r_ext_compress_lightmaps;
 extern cvar_t *r_ext_multitexture;
 extern cvar_t *r_ext_compiled_vertex_array;
 extern cvar_t *r_ext_texture_env_add;
@@ -118,6 +120,7 @@ extern	cvar_t	*r_saveFontData;
 qboolean	R_GetModeInfo( int *width, int *height, float *windowAspect, int mode );
 
 float R_NoiseGet4f( float x, float y, float z, float t );
+int R_RandomOn( float t );
 void  R_NoiseInit( void );
 
 image_t     *R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags );
@@ -127,12 +130,16 @@ void R_IssuePendingRenderCommands( void );
 qhandle_t		 RE_RegisterShaderLightMap( const char *name, int lightmapIndex );
 qhandle_t		 RE_RegisterShader( const char *name );
 qhandle_t		 RE_RegisterShaderNoMip( const char *name );
+void			RE_ShaderNameFromIndex( char *name, qhandle_t hShader );
 qhandle_t RE_RegisterShaderFromImage(const char *name, int lightmapIndex, image_t *image, qboolean mipRawImage);
 
 // font stuff
-void R_InitFreeType( void );
-void R_DoneFreeType( void );
-void RE_RegisterFont(const char *fontName, int pointSize, fontInfo_t *font);
+void R_InitFonts( void );
+qhandle_t RE_RegisterFont( const char *fontName );
+int RE_Font_StrLenPixels( const char *text, const int iFontIndex, const float scale );
+int RE_Font_StrLenChars( const char *text );
+int RE_Font_HeightPixels( const int iFontIndex, const float scale );
+void RE_Font_DrawString( int ox, int oy, const char *text, const float *rgba, const int setIndex, int iCharLimit, const float scale );
 
 /*
 ====================================================================

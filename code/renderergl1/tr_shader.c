@@ -23,6 +23,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 // tr_shader.c -- this file deals with the parsing and definition of shaders
 
+#define USE_NEW_SHADER_HASH
+
 static char *s_shaderText;
 
 // the shader is parsed into these global variables, then copied into
@@ -34,8 +36,26 @@ static	texModInfo_t	texMods[MAX_SHADER_STAGES][TR_MAX_TEXMODS];
 #define FILE_HASH_SIZE		1024
 static	shader_t*		hashTable[FILE_HASH_SIZE];
 
+#ifdef USE_NEW_SHADER_HASH
+// drakkar - dynamic shaderTextHashTable
+#define MAX_SHADERNAME_LENGTH	 127
+#define MAX_SHADERTEXT_HASH		4096	// from 2048 to 4096
+
+typedef struct shaderText_s {   // 8 bytes + strlen(text)+1
+	struct shaderText_s *next;	// linked list hashtable
+	char *name;					// shader name
+	char text[0];				// shader text
+} shaderText_t;
+
+static shaderText_t *shaderTextHashTable[MAX_SHADERTEXT_HASH];
+
+static int fileShaderCount;		// total .shader files found
+static int shaderCount;			// total shaders parsed
+// !drakkar
+#else
 #define MAX_SHADERTEXT_HASH		2048
 static char **shaderTextHashTable[MAX_SHADERTEXT_HASH];
+#endif
 
 /*
 ================
@@ -163,6 +183,10 @@ static unsigned NameToAFunc( const char *funcname )
 	else if ( !Q_stricmp( funcname, "GE128" ) )
 	{
 		return GLS_ATEST_GE_80;
+	}
+	else if ( !Q_stricmp( funcname, "GE192" ) )
+	{
+		return GLS_ATEST_GE_120;
 	}
 
 	ri.Printf( PRINT_WARNING, "WARNING: invalid alphaFunc name '%s' in shader '%s'\n", funcname, shader.name );
@@ -292,6 +316,10 @@ static genFunc_t NameToGenFunc( const char *funcname )
 	else if ( !Q_stricmp( funcname, "noise" ) )
 	{
 		return GF_NOISE;
+	}
+	else if ( !Q_stricmp( funcname, "random" ) )
+	{
+		return GF_RANDOM;
 	}
 
 	ri.Printf( PRINT_WARNING, "WARNING: invalid genfunc name '%s' in shader '%s'\n", funcname, shader.name );
@@ -683,6 +711,39 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 			}
 		}
 		//
+		// clampanimMap <name>
+		//
+		else if ( !Q_stricmp( token, "clampanimMap" ) )
+		{
+			token = COM_ParseExt( text, qfalse );
+			if ( !token[0] )
+			{
+				ri.Printf( PRINT_WARNING, "WARNING: missing parameter for 'clampanimMap' keyword in shader '%s'\n", shader.name );
+				return qfalse;
+			}
+			stage->bundle[0].imageAnimationSpeed = atof( token );
+
+			// parse up to MAX_IMAGE_ANIMATIONS animations
+			while ( 1 ) {
+				int		num;
+
+				token = COM_ParseExt( text, qfalse );
+				if ( !token[0] ) {
+					break;
+				}
+				num = stage->bundle[0].numImageAnimations;
+				if ( num < MAX_IMAGE_ANIMATIONS ) {
+					stage->bundle[0].image[num] = R_FindImageFile( token, !shader.noMipMaps, !shader.noPicMip, GL_CLAMP_TO_EDGE );
+					if ( !stage->bundle[0].image[num] )
+					{
+						ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
+						return qfalse;
+					}
+					stage->bundle[0].numImageAnimations++;
+				}
+			}
+		}
+		//
 		// animMap <frequency> <image1> .... <imageN>
 		//
 		else if ( !Q_stricmp( token, "animMap" ) )
@@ -714,6 +775,40 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 						flags |= IMGFLAG_PICMIP;
 
 					stage->bundle[0].image[num] = R_FindImageFile( token, IMGTYPE_COLORALPHA, flags );
+					if ( !stage->bundle[0].image[num] )
+					{
+						ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
+						return qfalse;
+					}
+					stage->bundle[0].numImageAnimations++;
+				}
+			}
+		}
+		//
+		// oneshotanimMap <frequency> <image1> .... <imageN>
+		//
+		else if ( !Q_stricmp( token, "oneshotanimMap" ) )
+		{
+			token = COM_ParseExt( text, qfalse );
+			if ( !token[0] )
+			{
+				ri.Printf( PRINT_WARNING, "WARNING: missing parameter for 'animMap' keyword in shader '%s'\n", shader.name );
+				return qfalse;
+			}
+			stage->bundle[0].imageAnimationSpeed = atof( token );
+			stage->bundle[0].isOneShot = qtrue;
+
+			// parse up to MAX_IMAGE_ANIMATIONS animations
+			while ( 1 ) {
+				int		num;
+
+				token = COM_ParseExt( text, qfalse );
+				if ( !token[0] ) {
+					break;
+				}
+				num = stage->bundle[0].numImageAnimations;
+				if ( num < MAX_IMAGE_ANIMATIONS ) {
+					stage->bundle[0].image[num] = R_FindImageFile( token, !shader.noMipMaps, !shader.noPicMip, GL_REPEAT );
 					if ( !stage->bundle[0].image[num] )
 					{
 						ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
@@ -765,6 +860,10 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 			}
 
 			if ( !Q_stricmp( token, "lequal" ) )
+			{
+				depthFuncBits = 0;
+			}
+			else if ( !Q_stricmp( token, "disable" ) )
 			{
 				depthFuncBits = 0;
 			}
@@ -884,6 +983,10 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 			else if ( !Q_stricmp( token, "lightingDiffuse" ) )
 			{
 				stage->rgbGen = CGEN_LIGHTING_DIFFUSE;
+			}
+			else if ( !Q_stricmp( token, "lightingDiffuseEntity" ) )
+			{
+				stage->rgbGen = CGEN_LIGHTING_DIFFUSE_ENTITY;
 			}
 			else if ( !Q_stricmp( token, "oneMinusVertex" ) )
 			{
@@ -1028,6 +1131,23 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 
 			continue;
 		}
+		/* TODO DYNAMIC GLOW */
+		else if ( !Q_stricmp( token, "glow" ) )
+		{
+			stage->isGlow = qtrue;
+			continue;
+		}
+		/* TODO SURFACESPRITES */
+		else if ( !Q_stricmp( token, "surfaceSprites" ) )
+		{
+			SkipRestOfLine( text );
+			continue;
+		}
+		else if( !Q_stricmpn( token, "ss", 2 ) )
+		{
+			SkipRestOfLine( text );
+			continue;
+		}
 		else
 		{
 			ri.Printf( PRINT_WARNING, "WARNING: unknown parameter '%s' in shader '%s'\n", token, shader.name );
@@ -1062,7 +1182,8 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 	// decide which agens we can skip
 	if ( stage->alphaGen == AGEN_IDENTITY ) {
 		if ( stage->rgbGen == CGEN_IDENTITY
-			|| stage->rgbGen == CGEN_LIGHTING_DIFFUSE ) {
+			|| stage->rgbGen == CGEN_LIGHTING_DIFFUSE
+			|| stage->rgbGen == CGEN_LIGHTING_DIFFUSE_ENTITY ) {
 			stage->alphaGen = AGEN_SKIP;
 		}
 	}
@@ -1352,40 +1473,40 @@ infoParm_t	infoParms[] = {
 	{"lava",		1,	0,	CONTENTS_LAVA },		// very damaging
 	{"playerclip",	1,	0,	CONTENTS_PLAYERCLIP },
 	{"monsterclip",	1,	0,	CONTENTS_MONSTERCLIP },
+	{"botclip",	1,	0,	CONTENTS_BOTCLIP },
+	{"shotclip",	1,	0,	CONTENTS_SHOTCLIP },
 	{"nodrop",		1,	0,	CONTENTS_NODROP },		// don't drop items or leave bodies (death fog, lava, etc)
-	{"nonsolid",	1,	SURF_NONSOLID,	0},						// clears the solid flag
+	{"nonsolid",	1,	0,	0},						// clears the solid flag
+	{"ladder",		0,	0,	CONTENTS_LADDER },
+	{"abseil",		0,	0,	CONTENTS_ABSEIL },
+	{"terrain",		0,	0,	CONTENTS_TERRAIN },
 
 	// utility relevant attributes
-	{"origin",		1,	0,	CONTENTS_ORIGIN },		// center of rotating brushes
+	//{"origin",		1,	0,	CONTENTS_ORIGIN },		// center of rotating brushes
 	{"trans",		0,	0,	CONTENTS_TRANSLUCENT },	// don't eat contained surfaces
+	{"nonopaque",		0,	0,	CONTENTS_TRANSLUCENT },	// don't eat contained surfaces
 	{"detail",		0,	0,	CONTENTS_DETAIL },		// don't include in structural bsp
-	{"structural",	0,	0,	CONTENTS_STRUCTURAL },	// force into structural bsp even if trnas
-	{"areaportal",	1,	0,	CONTENTS_AREAPORTAL },	// divides areas
-	{"clusterportal", 1,0,  CONTENTS_CLUSTERPORTAL },	// for bots
-	{"donotenter",  1,  0,  CONTENTS_DONOTENTER },		// for bots
+	{"inside",		0,	0,	CONTENTS_INSIDE },
+	{"outside",		0,	0,	CONTENTS_OUTSIDE },
 
 	{"fog",			1,	0,	CONTENTS_FOG},			// carves surfaces entering
 	{"sky",			0,	SURF_SKY,		0 },		// emit light from an environment map
-	{"lightfilter",	0,	SURF_LIGHTFILTER, 0 },		// filter light going through it
-	{"alphashadow",	0,	SURF_ALPHASHADOW, 0 },		// test light on a per-pixel basis
-	{"hint",		0,	SURF_HINT,		0 },		// use as a primary splitter
 
 	// server attributes
 	{"slick",		0,	SURF_SLICK,		0 },
 	{"noimpact",	0,	SURF_NOIMPACT,	0 },		// don't make impact explosions or marks
 	{"nomarks",		0,	SURF_NOMARKS,	0 },		// don't make impact marks, but still explode
-	{"ladder",		0,	SURF_LADDER,	0 },
 	{"nodamage",	0,	SURF_NODAMAGE,	0 },
 	{"metalsteps",	0,	SURF_METALSTEPS,0 },
-	{"flesh",		0,	SURF_FLESH,		0 },
+	//{"flesh",		0,	SURF_FLESH,		0 },
 	{"nosteps",		0,	SURF_NOSTEPS,	0 },
 
 	// drawsurf attributes
 	{"nodraw",		0,	SURF_NODRAW,	0 },	// don't generate a drawsurface (or a lightmap)
-	{"pointlight",	0,	SURF_POINTLIGHT, 0 },	// sample lighting at vertexes
-	{"nolightmap",	0,	SURF_NOLIGHTMAP,0 },	// don't generate a lightmap
+	//{"pointlight",	0,	SURF_POINTLIGHT, 0 },	// sample lighting at vertexes
+	//{"nolightmap",	0,	SURF_NOLIGHTMAP,0 },	// don't generate a lightmap
 	{"nodlight",	0,	SURF_NODLIGHT, 0 },		// don't ever add dynamic lights
-	{"dust",		0,	SURF_DUST, 0}			// leave a dust trail when walking on this surface
+	{"nomiscents", 0, SURF_NOMISCENTS, 0},
 };
 
 
@@ -1416,6 +1537,24 @@ static void ParseSurfaceParm( char **text ) {
 	}
 }
 
+static const char *materials[] = {
+	MATERIALS
+};
+
+static void ParseMaterialParm( char **text ) {
+	char	*token;
+	int		numMaterials = ARRAY_LEN( materials );
+	int		i;
+
+	token = COM_ParseExt( text, qfalse );
+	for ( i = 1 ; i < numMaterials ; i++ ) {
+		if ( !Q_stricmp( token, materials[i] ) ) {
+			shader.surfaceFlags |= i;
+			break;
+		}
+	}
+}
+
 /*
 =================
 ParseShader
@@ -1431,6 +1570,9 @@ static qboolean ParseShader( char **text )
 	int s;
 
 	s = 0;
+
+	// JKA: Compression is implied as allowed if not otherwise specified
+	tr.allowCompression = qtrue;
 
 	token = COM_ParseExt( text, qtrue );
 	if ( token[0] != '{' )
@@ -1451,6 +1593,8 @@ static qboolean ParseShader( char **text )
 		// end of shader definition
 		if ( token[0] == '}' )
 		{
+			// JKA: Compression is implied as allowed if not otherwise specified
+			tr.allowCompression = qtrue;
 			break;
 		}
 		// stage definition
@@ -1475,8 +1619,14 @@ static qboolean ParseShader( char **text )
 			SkipRestOfLine( text );
 			continue;
 		}
+		// jka materials
+		else if ( !Q_stricmp( token, "material" ) || !Q_stricmp( token, "q3map_material" ) ) {
+			ParseMaterialParm( text );
+			//SkipRestOfLine( text );
+			continue;
+		}
 		// sun parms
-		else if ( !Q_stricmp( token, "q3map_sun" ) ) {
+		else if ( !Q_stricmp( token, "sun" ) ) {
 			float	a, b;
 
 			token = COM_ParseExt( text, qfalse );
@@ -1514,10 +1664,18 @@ static qboolean ParseShader( char **text )
 		}
 		else if ( !Q_stricmp( token, "clampTime" ) ) {
 			token = COM_ParseExt( text, qfalse );
-      if (token[0]) {
-        shader.clampTime = atof(token);
-      }
-    }
+			if (token[0]) {
+				shader.clampTime = atof(token);
+			}
+		}
+		else if ( !Q_stricmp( token, "lightColor" ) ) {
+			SkipRestOfLine( text );
+			continue;
+		}
+		else if ( !Q_stricmp( token, "surfacelight" ) || !Q_stricmp( token, "q3map_surfacelight" ) ) {
+			SkipRestOfLine( text );
+			continue;
+		}
 		// skip stuff that only the q3map needs
 		else if ( !Q_stricmpn( token, "q3map", 5 ) ) {
 			SkipRestOfLine( text );
@@ -1541,10 +1699,19 @@ static qboolean ParseShader( char **text )
 			shader.noPicMip = qtrue;
 			continue;
 		}
+		else if ( !Q_stricmp( token, "noglfog" ) )
+		{
+			continue;
+		}
 		// polygonOffset
 		else if ( !Q_stricmp( token, "polygonOffset" ) )
 		{
 			shader.polygonOffset = qtrue;
+			continue;
+		}
+		else if( !Q_stricmp( token, "noTC" ) )
+		{
+			tr.allowCompression = qfalse;
 			continue;
 		}
 		// entityMergable, allowing sprite surfaces from multiple entities
@@ -1681,7 +1848,7 @@ static void ComputeStageIteratorFunc( void )
 	//
 	if ( shader.numUnfoggedPasses == 1 )
 	{
-		if ( stages[0].rgbGen == CGEN_LIGHTING_DIFFUSE )
+		if ( stages[0].rgbGen == CGEN_LIGHTING_DIFFUSE || stages[0].rgbGen == CGEN_LIGHTING_DIFFUSE_ENTITY )
 		{
 			if ( stages[0].alphaGen == AGEN_IDENTITY )
 			{
@@ -1794,7 +1961,7 @@ static qboolean CollapseMultitexture( void ) {
 	}
 
 	// on voodoo2, don't combine different tmus
-	if ( glConfig.driverType == GLDRV_VOODOO ) {
+	if ( glConfig2.driverType == GLDRV_VOODOO ) {
 		if ( stages[0].bundle[0].image[0]->TMU ==
 			 stages[1].bundle[0].image[0]->TMU ) {
 			return qfalse;
@@ -1916,6 +2083,12 @@ static void FixRenderCommandList( int newShader ) {
 				break;
 				}
 			case RC_STRETCH_PIC:
+				{
+				const stretchPicCommand_t *sp_cmd = (const stretchPicCommand_t *)curCmd;
+				curCmd = (const void *)(sp_cmd + 1);
+				break;
+				}
+			case RC_ROTATED_PIC:
 				{
 				const stretchPicCommand_t *sp_cmd = (const stretchPicCommand_t *)curCmd;
 				curCmd = (const void *)(sp_cmd + 1);
@@ -2296,7 +2469,7 @@ static shader_t *FinishShader( void ) {
 	//
 	// if we are in r_vertexLight mode, never use a lightmap texture
 	//
-	if ( stage > 1 && ( (r_vertexLight->integer && !r_uiFullScreen->integer) || glConfig.hardwareType == GLHW_PERMEDIA2 ) ) {
+	if ( stage > 1 && ( (r_vertexLight->integer && !r_uiFullScreen->integer) || glConfig2.hardwareType == GLHW_PERMEDIA2 ) ) {
 		VertexLightingCollapse();
 		stage = 1;
 		hasLightmapStage = qfalse;
@@ -2349,6 +2522,21 @@ If found, it will return a valid shader
 =====================
 */
 static char *FindShaderInShaderText( const char *shadername ) {
+#ifdef USE_NEW_SHADER_HASH
+	shaderText_t *st;
+	int hash;
+
+	hash = generateHashValue(shadername, MAX_SHADERTEXT_HASH);
+
+	for( st = shaderTextHashTable[hash]; st; st = st->next ) {
+		if ( !Q_stricmp( st->name, shadername ) ) {
+			return st->text;
+		}
+	}
+
+	// drakkar - if shader does not exists in the hashtable then it does not exist in s_shaderText
+	return NULL;
+#else
 
 	char *token, *p;
 
@@ -2391,6 +2579,7 @@ static char *FindShaderInShaderText( const char *shadername ) {
 	}
 
 	return NULL;
+#endif
 }
 
 
@@ -2834,6 +3023,17 @@ shader_t *R_GetShaderByHandle( qhandle_t hShader ) {
 	return tr.shaders[hShader];
 }
 
+void RE_ShaderNameFromIndex( char *name, qhandle_t hShader ) {
+	if(name) {
+		shader_t *sh = R_GetShaderByHandle(hShader);
+
+		if(sh && sh != tr.defaultShader)
+			name = sh->name;
+		else
+			name = "";
+	}
+}
+
 /*
 ===============
 R_ShaderList_f
@@ -2910,6 +3110,110 @@ Finds and loads all .shader files, combining them into
 a single large text block that can be scanned for shader names
 =====================
 */
+
+#ifdef USE_NEW_SHADER_HASH
+// drakkar - extract shaders from the buffer and insert into the hashtable
+static void LoadShaderFromBuffer( char *buff )
+{
+	char shadername[MAX_SHADERNAME_LENGTH+1];
+	shaderText_t *st;
+	char *p, *name, *text;
+	int nameLength, textLength;
+	long size, hash;
+	int q3ShaderBug = 1;
+
+	if( !buff ) return;
+
+	p = buff;
+	while( *p )
+	{
+		// get next shader name and shader text from buffer
+		COM_CompressBracedSection( &p, &name, &text, &nameLength, &textLength );
+		if( !nameLength || !textLength ) continue;
+
+		if( nameLength >= MAX_SHADERNAME_LENGTH ) {
+			strncpy( shadername, name, MAX_SHADERNAME_LENGTH );
+			shadername[MAX_SHADERNAME_LENGTH] = '\0';
+			ri.Printf( PRINT_DEVELOPER, "Warning: Shader name too long '%s'...\n", shadername );
+			continue;
+		}
+
+		strncpy( shadername, name, nameLength );
+		shadername[nameLength] = '\0';
+		name = shadername;
+
+		// if shader already exists ignore the new shader text
+		hash = generateHashValue( name, MAX_SHADERTEXT_HASH );
+		for( st = shaderTextHashTable[hash]; st; st = st->next ) {
+			if( !Q_stricmp( name, st->name ) ) {
+				if( q3ShaderBug ) { // simulating q3 shader bug: override only the first shader of the buffer
+					st->name[0] = '\0';
+					st = NULL;
+				}
+				break;
+			}
+		}
+		if( st ) continue;		
+		q3ShaderBug = 0;
+
+		// create the new shader
+		size = sizeof(shaderText_t) + (textLength+1) + (nameLength+1);
+		st = ri.Hunk_Alloc( size, h_low );
+
+		// copy shader name and shader text
+		memcpy( st->text, text, textLength );
+		st->text[textLength] = '\0';
+		st->name = st->text + (textLength+1);
+		strncpy( st->name, name, nameLength );
+		st->name[nameLength] = '\0';
+
+		// insert the new shader into hashtable
+		st->next = shaderTextHashTable[hash];
+		shaderTextHashTable[hash] = st;
+
+		shaderCount++;
+	}
+}
+
+static void ScanAndLoadShaderFiles( void ) // drakkar - using LoadShaderFromBuffer()
+{
+	char   filename[MAX_QPATH];
+	char  *buffer;
+	char **shaderFiles;
+	int    i, numShaderFiles;
+
+	// scan for shader files
+	shaderFiles = ri.FS_ListFiles( "shaders", ".shader", &numShaderFiles );
+	if ( !shaderFiles || !numShaderFiles )
+	{
+		ri.Printf( PRINT_WARNING, "WARNING: no shader files found\n" );
+		return;
+	}
+
+	// load and parse shader files
+	for( i = numShaderFiles-1; i >= 0; i-- ) // parse shaders in reverse order
+	{
+		Com_sprintf( filename, sizeof(filename), "shaders/%s", shaderFiles[i] );
+		ri.Printf( PRINT_DEVELOPER, "...loading '%s'\n", filename );
+		ri.FS_ReadFile( filename, (void**)&buffer );
+		if( !buffer ) ri.Error( ERR_DROP, "Couldn't load %s", filename );
+
+		LoadShaderFromBuffer( buffer ); // extract and index all shaders from the buffer
+
+		ri.FS_FreeFile( buffer );
+
+		fileShaderCount++;
+	}
+
+	// free up memory
+	ri.FS_FreeFileList( shaderFiles );
+
+	return;
+
+}
+// !drakkar
+#else
+
 #define	MAX_SHADER_FILES	4096
 static void ScanAndLoadShaderFiles( void )
 {
@@ -2923,7 +3227,7 @@ static void ScanAndLoadShaderFiles( void )
 
 	long sum = 0, summand;
 	// scan for shader files
-	shaderFiles = ri.FS_ListFiles( "scripts", ".shader", &numShaderFiles );
+	shaderFiles = ri.FS_ListFiles( "shaders", ".shader", &numShaderFiles );
 
 	if ( !shaderFiles || !numShaderFiles )
 	{
@@ -2940,7 +3244,7 @@ static void ScanAndLoadShaderFiles( void )
 	{
 		char filename[MAX_QPATH];
 
-		Com_sprintf( filename, sizeof( filename ), "scripts/%s", shaderFiles[i] );
+		Com_sprintf( filename, sizeof( filename ), "shaders/%s", shaderFiles[i] );
 		ri.Printf( PRINT_DEVELOPER, "...loading '%s'\n", filename );
 		summand = ri.FS_ReadFile( filename, (void **)&buffers[i] );
 		
@@ -3044,6 +3348,7 @@ static void ScanAndLoadShaderFiles( void )
 	return;
 
 }
+#endif
 
 
 /*
@@ -3074,7 +3379,7 @@ static void CreateInternalShaders( void ) {
 
 static void CreateExternalShaders( void ) {
 	tr.projectionShadowShader = R_FindShader( "projectionShadow", LIGHTMAP_NONE, qtrue );
-	tr.flareShader = R_FindShader( "flareShader", LIGHTMAP_NONE, qtrue );
+	tr.flareShader = R_FindShader( "gfx/misc/flare", LIGHTMAP_NONE, qtrue );
 
 	// Hack to make fogging work correctly on flares. Fog colors are calculated
 	// in tr_flare.c already.
@@ -3098,13 +3403,44 @@ R_InitShaders
 ==================
 */
 void R_InitShaders( void ) {
+#ifdef USE_NEW_SHADER_HASH
+	int time, mem;
+#endif
 	ri.Printf( PRINT_ALL, "Initializing Shaders\n" );
+	
+#ifdef USE_NEW_SHADER_HASH
+	// drakkar - profiling shader parse session
+	COM_BeginParseSession( "R_InitShaders" );
+	time = ri.Milliseconds();
+	mem = ri.Hunk_MemoryRemaining();
+	fileShaderCount = 0;
+	shaderCount = 0;
+	// !drakkar
+#endif
 
 	Com_Memset(hashTable, 0, sizeof(hashTable));
+#ifdef USE_NEW_SHADER_HASH
+	Com_Memset(shaderTextHashTable, 0, sizeof(shaderTextHashTable));  // drakkar - clear shader hashtable
+#endif
 
 	CreateInternalShaders();
 
 	ScanAndLoadShaderFiles();
 
 	CreateExternalShaders();
+
+#ifdef USE_NEW_SHADER_HASH
+// drakkar - print profiling info
+	time = ri.Milliseconds() - time;
+	mem = mem - ri.Hunk_MemoryRemaining();
+	ri.Printf( PRINT_ALL, "-------------------------\n" );
+	ri.Printf( PRINT_ALL, "%d shader files read \n", fileShaderCount );
+	ri.Printf( PRINT_ALL, "%d shaders found\n", shaderCount );
+	ri.Printf( PRINT_ALL, "%d code lines\n", COM_GetCurrentParseLine() );	
+	ri.Printf( PRINT_ALL, "%.2f MB shader data\n", mem/1024.0f/1024.0f );
+	ri.Printf( PRINT_ALL, "%.3f seconds\n", time/1000.0f );
+	ri.Printf( PRINT_ALL, "-------------------------\n" );
+	COM_BeginParseSession( "" );
+	// !drakkar
+#endif
 }

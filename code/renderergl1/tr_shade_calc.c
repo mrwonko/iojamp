@@ -43,6 +43,8 @@ static float *TableForFunc( genFunc_t func )
 		return tr.sawToothTable;
 	case GF_INVERSE_SAWTOOTH:
 		return tr.inverseSawToothTable;
+	case GF_NOISE:
+		return tr.noiseTable;
 	case GF_NONE:
 	default:
 		break;
@@ -688,6 +690,8 @@ void RB_CalcWaveColor( const waveForm_t *wf, unsigned char *dstColors )
 
   if ( wf->func == GF_NOISE ) {
 		glow = wf->base + R_NoiseGet4f( 0, 0, 0, ( tess.shaderTime + wf->phase ) * wf->frequency ) * wf->amplitude;
+	} else if( wf->func == GF_RANDOM ) {
+		glow = wf->base + R_RandomOn( (tess.shaderTime + wf->phase) * wf->frequency ) * wf->amplitude;
 	} else {
 		glow = EvalWaveForm( wf ) * tr.identityLight;
 	}

@@ -1010,18 +1010,26 @@ See if a sprite is inside a fog volume
 int R_SpriteFogNum( trRefEntity_t *ent ) {
 	int				i, j;
 	fog_t			*fog;
+	float			radius;
 
 	if ( tr.refdef.rdflags & RDF_NOWORLDMODEL ) {
 		return 0;
 	}
 
+	if ( ent->e.reType == RT_ORIENTED_QUAD ) {
+		radius = ent->e.data.sprite.radius;
+	}
+	else {
+		radius = ent->e.radius;
+	}
+
 	for ( i = 1 ; i < tr.world->numfogs ; i++ ) {
 		fog = &tr.world->fogs[i];
 		for ( j = 0 ; j < 3 ; j++ ) {
-			if ( ent->e.origin[j] - ent->e.radius >= fog->bounds[1][j] ) {
+			if ( ent->e.origin[j] - radius >= fog->bounds[1][j] ) {
 				break;
 			}
-			if ( ent->e.origin[j] + ent->e.radius <= fog->bounds[0][j] ) {
+			if ( ent->e.origin[j] + radius <= fog->bounds[0][j] ) {
 				break;
 			}
 		}
@@ -1220,7 +1228,14 @@ void R_AddEntitySurfaces (void) {
 		case RT_PORTALSURFACE:
 			break;		// don't draw anything
 		case RT_SPRITE:
+		case RT_LINE:
+		case RT_ORIENTEDLINE:
+		case RT_CYLINDER:
+		case RT_ENT_CHAIN:
+		case RT_POLY:
+		case RT_ORIENTED_QUAD:
 		case RT_BEAM:
+		case RT_ELECTRICITY:
 		case RT_LIGHTNING:
 		case RT_RAIL_CORE:
 		case RT_RAIL_RINGS:
@@ -1259,6 +1274,9 @@ void R_AddEntitySurfaces (void) {
 					break;
 				case MOD_BRUSH:
 					R_AddBrushModelSurfaces( ent );
+					break;
+				case MOD_GLM:
+					R_AddMyGhoulSurfaces( ent );
 					break;
 				case MOD_BAD:		// null model axis
 					if ( (ent->e.renderfx & RF_THIRD_PERSON) && !tr.viewParms.isPortal) {

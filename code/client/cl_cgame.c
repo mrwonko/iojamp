@@ -53,6 +53,16 @@ void CL_GetGlconfig( glconfig_t *glconfig ) {
 	*glconfig = cls.glconfig;
 }
 
+/*
+====================
+CL_GetRealRes
+====================
+*/
+void CL_GetRealRes( float *width, float *height ) {
+	*width = cls.glconfig.vidWidth;
+	*height = cls.glconfig.vidHeight;
+}
+
 
 /*
 ====================
@@ -172,8 +182,10 @@ qboolean	CL_GetSnapshot( int snapshotNumber, snapshot_t *snapshot ) {
 CL_SetUserCmdValue
 =====================
 */
-void CL_SetUserCmdValue( int userCmdValue, float sensitivityScale ) {
+void CL_SetUserCmdValue( int userCmdValue, float sensitivityScale, float pitchOverride, float yawOverride, float sensitivityOverride, int forceSelect, int inventorySelect, qboolean useFighterPitch ) {
 	cl.cgameUserCmdValue = userCmdValue;
+	cl.cgameUserCmdForce = forceSelect;
+	cl.cgameUserCmdInv = inventorySelect;
 	cl.cgameSensitivity = sensitivityScale;
 }
 
@@ -257,6 +269,30 @@ void CL_ConfigstringModified( void ) {
 
 }
 
+/*
+===================
+CL_DisconnectCommand
+===================
+*/
+void CL_DisconnectCommand( int argc ) {
+	char *msg;
+	int len;
+	const char *disco = SE_GetString("MP_SVGAME_SERVER_DISCONNECTED");
+
+	if ( argc >= 2 ) {
+		msg = Cmd_Argv( 1 );
+		len = strlen( msg );
+		if( len > 3 && msg[0] == '@' && msg[1] == '@' && msg[2] == '@' ) {
+			msg = SE_GetString(va("MP_SVGAME_%s", msg+3));
+		}
+
+		Com_Error( ERR_SERVERDISCONNECT, "%s: %s", disco, msg );
+	}
+	else {
+		Com_Error( ERR_SERVERDISCONNECT, "%s", disco );
+	}
+}
+
 
 /*
 ===================
@@ -299,10 +335,7 @@ rescan:
 	if ( !strcmp( cmd, "disconnect" ) ) {
 		// https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=552
 		// allow server to indicate why they were disconnected
-		if ( argc >= 2 )
-			Com_Error( ERR_SERVERDISCONNECT, "Server disconnected - %s", Cmd_Argv( 1 ) );
-		else
-			Com_Error( ERR_SERVERDISCONNECT, "Server disconnected" );
+		CL_DisconnectCommand( argc );
 	}
 
 	if ( !strcmp( cmd, "bcs0" ) ) {
@@ -366,6 +399,13 @@ rescan:
 		return qtrue;
 	}
 
+	/* JKA: This gets spammed so that the client can draw server changing maps message */
+	if( !strcmp( cmd, "mapchange" ) ) {
+		if( cgvm )
+			VM_Call( cgvm, CG_MAP_CHANGE );
+		return qfalse;
+	}
+
 	// we may want to put a "connect to other server" command here
 
 	// cgame can now act on the command
@@ -407,6 +447,54 @@ static int	FloatAsInt( float f ) {
 	floatint_t fi;
 	fi.f = f;
 	return fi.i;
+}
+
+static unsigned int AnyLanguage_ReadCharFromString( const char *psText, int *piAdvanceCount, qboolean *pbIsTrailingPunctuation ) {
+	if( !piAdvanceCount )
+		return 0;
+	*piAdvanceCount = 1;
+	if( pbIsTrailingPunctuation ) {
+		*pbIsTrailingPunctuation = (qboolean) ( isspace( *psText ) || ispunct( *psText ) );
+	}
+	return *psText;
+}
+
+/*
+================
+CL_AdjustFrom640
+
+Adjusted for resolution and screen aspect ratio
+================
+*/
+void CL_AdjustFrom640( float *x, float *y, float *w, float *h ) {
+	float	xscale;
+	float	yscale;
+
+	// scale for screen sizes
+	xscale = cls.glconfig.vidWidth / 640.0;
+	yscale = cls.glconfig.vidHeight / 480.0;
+	if ( x ) {
+		*x *= xscale;
+	}
+	if ( y ) {
+		*y *= yscale;
+	}
+	if ( w ) {
+		*w *= xscale;
+	}
+	if ( h ) {
+		*h *= yscale;
+	}
+}
+
+void CL_RE_DrawStretchPic( float x, float y, float w, float h, float s1, float t1, float s2, float t2, qhandle_t hShader ) {
+	CL_AdjustFrom640( &x, &y, &w, &h );
+	re.DrawStretchPic( x, y, w, h, s1, t1, s2, t2, hShader );
+}
+
+void CL_RE_DrawRotatePic( float x, float y, float w, float h, float s1, float t1, float s2, float t2, float angle, qboolean centered, qhandle_t hShader ) {
+	CL_AdjustFrom640( &x, &y, &w, &h );
+	re.DrawRotatedPic( x, y, w, h, s1, t1, s2, t2, angle, centered, hShader );
 }
 
 /*
@@ -457,8 +545,10 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 	case CG_FS_FCLOSEFILE:
 		FS_FCloseFile( args[1] );
 		return 0;
-	case CG_FS_SEEK:
-		return FS_Seek( args[1], args[2], args[3] );
+	case CG_FS_GETFILELIST:
+		return FS_GetFileList( VMA(1), VMA(2), VMA(3), args[4] );
+//	case CG_FS_SEEK:
+//		return FS_Seek( args[1], args[2], args[3] );
 	case CG_SENDCONSOLECOMMAND:
 		Cbuf_AddText( VMA(1) );
 		return 0;
@@ -508,6 +598,12 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		return 0;
 	case CG_CM_MARKFRAGMENTS:
 		return re.MarkFragments( args[1], VMA(2), VMA(3), args[4], VMA(5), args[6], VMA(7) );
+	case CG_S_MUTESOUND:
+		S_MuteSound( args[1], args[2] );
+		return 0;
+	case CG_S_SHUTUP:
+		S_ShutUp( args[1] );
+		return 0;
 	case CG_S_STARTSOUND:
 		S_StartSound( VMA(1), args[2], args[3], args[4] );
 		return 0;
@@ -549,8 +645,36 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 	case CG_R_REGISTERSHADERNOMIP:
 		return re.RegisterShaderNoMip( VMA(1) );
 	case CG_R_REGISTERFONT:
-		re.RegisterFont( VMA(1), args[2], VMA(3));
+		return re.RegisterFont( VMA(1) );
+
+	case CG_R_FONT_STRLENPIXELS:
+		return re.Font_StrLenPixels( VMA(1), args[2], VMF(3) );
+
+	case CG_R_FONT_STRLENCHARS:
+		return re.Font_StrLenChars( VMA(1) );
+
+	case CG_R_FONT_STRHEIGHTPIXELS:
+		return re.Font_HeightPixels( args[1], VMF(2) );
+
+	case CG_R_FONT_DRAWSTRING:
+		re.Font_DrawString( args[1], args[2], VMA(3), VMA(4), args[5], args[6], VMF(7) );
 		return 0;
+
+	case CG_LANGUAGE_ISASIAN:
+		return 0;
+
+	case CG_LANGUAGE_USESSPACES:
+		return 1;
+
+	case CG_ANYLANGUAGE_READCHARFROMSTRING:
+		{
+			return AnyLanguage_ReadCharFromString( VMA(1), VMA(2), VMA(3) );
+		}
+		return 0;// AnyLanguage_ReadCharFromString( const char *psText, int *piAdvanceCount, qboolean *pbIsTrailingPunctuation )
+
+	case CG_SP_GETSTRINGTEXTSTRING:
+		return SE_GetStringBuffer( VMA(1), VMA(2), args[3] );
+
 	case CG_R_CLEARSCENE:
 		re.ClearScene();
 		return 0;
@@ -578,7 +702,13 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		re.SetColor( VMA(1) );
 		return 0;
 	case CG_R_DRAWSTRETCHPIC:
-		re.DrawStretchPic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), args[9] );
+		CL_RE_DrawStretchPic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), args[9] );
+		return 0;
+	case CG_R_DRAWROTATEPIC:
+		CL_RE_DrawRotatePic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), VMF(9), qfalse, args[10] );
+		return 0;
+	case CG_R_DRAWROTATEPIC2:
+		CL_RE_DrawRotatePic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), VMF(9), qtrue, args[10] );
 		return 0;
 	case CG_R_MODELBOUNDS:
 		re.ModelBounds( args[1], VMA(2), VMA(3) );
@@ -587,6 +717,9 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		return re.LerpTag( VMA(1), args[2], args[3], args[4], VMF(5), VMA(6) );
 	case CG_GETGLCONFIG:
 		CL_GetGlconfig( VMA(1) );
+		return 0;
+	case CG_R_GETREALRES:
+		CL_GetRealRes( VMA(1), VMA(2) );
 		return 0;
 	case CG_GETGAMESTATE:
 		CL_GetGameState( VMA(1) );
@@ -603,22 +736,60 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 	case CG_GETUSERCMD:
 		return CL_GetUserCmd( args[1], VMA(2) );
 	case CG_SETUSERCMDVALUE:
-		CL_SetUserCmdValue( args[1], VMF(2) );
+		CL_SetUserCmdValue( args[1], VMF(2), VMF(3), VMF(4), VMF(5), args[6], args[7], args[8] );
 		return 0;
+	case CG_SETCLIENTFORCEANGLE:
+		return 0;
+	case CG_SETCLIENTTURNEXTENT:
+		return 0;
+	case CG_OPENUIMENU:
+		if ( clc.state == CA_ACTIVE && !clc.demoplaying ) {
+			if ( uivm ) {
+				VM_Call( uivm, UI_SET_ACTIVE_MENU, args[1] );
+			}
+		}
 	case CG_MEMORY_REMAINING:
 		return Hunk_MemoryRemaining();
-  case CG_KEY_ISDOWN:
+	case CG_KEY_ISDOWN:
 		return Key_IsDown( args[1] );
-  case CG_KEY_GETCATCHER:
+	case CG_KEY_GETCATCHER:
 		return Key_GetCatcher();
-  case CG_KEY_SETCATCHER:
+	case CG_KEY_SETCATCHER:
 		// Don't allow the cgame module to close the console
 		Key_SetCatcher( args[1] | ( Key_GetCatcher( ) & KEYCATCH_CONSOLE ) );
-    return 0;
-  case CG_KEY_GETKEY:
+		return 0;
+	case CG_KEY_GETKEY:
 		return Key_GetKey( VMA(1) );
 
+	case CG_FX_REGISTER_EFFECT:
+		return FX_RegisterEffect(VMA(1));
 
+	case CG_FX_PLAY_EFFECT:
+		FX_PlayEffect(VMA(1), VMA(2), VMA(3));
+		return 0;
+
+	case CG_FX_PLAY_EFFECT_ID:
+		FX_PlayEffectID(args[1], VMA(2), VMA(3));
+		return 0;
+
+	case CG_FX_ADD_SCHEDULED_EFFECTS:
+		// We don't give a flying fuck about skyportal fx for now
+		if( args[1] != 0 )
+			return 0;
+		FX_Scheduler_AddEffects(qfalse);
+		return 0;
+	case CG_FX_INIT_SYSTEM:
+		FX_SystemInit(VMA(1));
+		return 0;
+	case CG_FX_FREE_SYSTEM:
+		FX_SystemShutdown();
+		return 0;
+
+	case CG_FX_ADJUST_TIME:
+		FX_AdjustTime(args[1]);
+		return 0;
+
+#if 0
 
 	case CG_MEMSET:
 		Com_Memset( VMA(1), args[2], args[3] );
@@ -643,6 +814,8 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		return FloatAsInt( ceil( VMF(1) ) );
 	case CG_ACOS:
 		return FloatAsInt( Q_acos( VMF(1) ) );
+		
+#endif
 
 	case CG_PC_ADD_GLOBAL_DEFINE:
 		return botlib_export->PC_AddGlobalDefine( VMA(1) );
@@ -654,6 +827,11 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		return botlib_export->PC_ReadTokenHandle( args[1], VMA(2) );
 	case CG_PC_SOURCE_FILE_AND_LINE:
 		return botlib_export->PC_SourceFileAndLine( args[1], VMA(2), VMA(3) );
+	case CG_PC_LOAD_GLOBAL_DEFINES:
+		return botlib_export->PC_LoadGlobalDefines( VMA(1) );
+	case CG_PC_REMOVE_ALL_GLOBAL_DEFINES:
+		botlib_export->PC_RemoveAllGlobalDefines();
+		return 0;
 
 	case CG_S_STOPBACKGROUNDTRACK:
 		S_StopBackgroundTrack();
@@ -686,6 +864,10 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		re.RemapShader( VMA(1), VMA(2), VMA(3) );
 		return 0;
 
+	case CG_R_GETDISTANCECULL:
+		re.GetDistanceCull( VMA(1) );
+		return 0;
+
 /*
 	case CG_LOADCAMERA:
 		return loadCamera(VMA(1));
@@ -702,9 +884,45 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 	case CG_R_INPVS:
 		return re.inPVS( VMA(1), VMA(2) );
 
+	case CG_G2_HAVEWEGHOULMODELS:
+		return qfalse;
+		//return re.Ghoul2Valid(VMA(1));
+
+	case CG_G2_GETGLANAME:
+		re.GetGLAName(VMA(1), args[2], VMA(3));
+		//strcpy(VMA(3), "models/players/_humanoid/_humanoid");
+		return 0;
+
+	case CG_G2_INITGHOUL2MODEL:
+		return 0;
+		//return re.InitG2Model(VMA(1), VMA(2), args[3], args[4], args[5], args[6], args[7]);
+
+	case CG_G2_COPYGHOUL2INSTANCE:
+		return 0;
+		//return re.CopyGhoul2(VMA(1), VMA(2), args[3]);
+
+	case CG_G2_COPYSPECIFICGHOUL2MODEL:
+		//re.CopyGhoul2Specific(VMA(1), args[2], VMA(3), args[4]);
+		return 0;
+
+	case CG_G2_HASGHOUL2MODELONINDEX:
+		return qfalse;
+		//return re.Ghoul2ModelOnIndex(VMA(1), args[2]);
+
+	case CG_G2_DUPLICATEGHOUL2INSTANCE:
+		//re.DuplicateGhoul2(VMA(1), VMA(2));
+		return 0;
+
+	case CG_G2_PLAYANIM:
+		return qtrue;
+
+	case CG_G2_ANGLEOVERRIDE:
+		return qtrue;
+
 	default:
-	        assert(0);
-		Com_Error( ERR_DROP, "Bad cgame system trap: %ld", (long int) args[0] );
+		return 0;
+//	        assert(0);
+//		Com_Error( ERR_DROP, "Bad cgame system trap: %ld", (long int) args[0] );
 	}
 	return 0;
 }
@@ -721,7 +939,6 @@ void CL_InitCGame( void ) {
 	const char			*info;
 	const char			*mapname;
 	int					t1, t2;
-	vmInterpret_t		interpret;
 
 	t1 = Sys_Milliseconds();
 
@@ -733,16 +950,8 @@ void CL_InitCGame( void ) {
 	mapname = Info_ValueForKey( info, "mapname" );
 	Com_sprintf( cl.mapname, sizeof( cl.mapname ), "maps/%s.bsp", mapname );
 
-	// load the dll or bytecode
-	interpret = Cvar_VariableValue("vm_cgame");
-	if(cl_connectedToPureServer)
-	{
-		// if sv_pure is set we only allow qvms to be loaded
-		if(interpret != VMI_COMPILED && interpret != VMI_BYTECODE)
-			interpret = VMI_COMPILED;
-	}
-
-	cgvm = VM_Create( "cgame", CL_CgameSystemCalls, interpret );
+	// load the dll
+	cgvm = VM_Create( "cgame", CL_CgameSystemCalls, VMI_NATIVE );
 	if ( !cgvm ) {
 		Com_Error( ERR_DROP, "VM_Create on cgame failed" );
 	}
@@ -751,7 +960,7 @@ void CL_InitCGame( void ) {
 	// init for this gamestate
 	// use the lastExecutedServerCommand instead of the serverCommandSequence
 	// otherwise server commands sent just before a gamestate are dropped
-	VM_Call( cgvm, CG_INIT, clc.serverMessageSequence, clc.lastExecutedServerCommand, clc.clientNum );
+	VM_Call( cgvm, CG_INIT, clc.serverMessageSequence, clc.lastExecutedServerCommand, clc.clientNum, clc.demoplaying );
 
 	// reset any CVAR_CHEAT cvars registered by cgame
 	if ( !clc.demoplaying && !cl_connectedToCheatServer )
@@ -777,6 +986,17 @@ void CL_InitCGame( void ) {
 	// clear anything that got printed
 	Con_ClearNotify ();
 }
+
+/*
+qboolean CL_InterceptCommand( void ) {
+	TCGIncomingConsoleCommand tcc;
+
+	Q_strncpyz(tcc.conCommand, Cmd_Cmd(), 1024);
+	// stick a pointer to a tcc object into the client shared buffer
+
+	return VM_Call( cgvm, CG_INCOMING_CONSOLE_COMMAND );
+}
+*/
 
 
 /*
@@ -896,6 +1116,12 @@ void CL_FirstSnapshot( void ) {
 	cl.oldServerTime = cl.snap.serverTime;
 
 	clc.timeDemoBaseTime = cl.snap.serverTime;
+
+#ifdef USE_RAW_INPUT_MOUSE
+	if (Cvar_VariableIntegerValue("in_mouse") == 3) {
+		Cbuf_AddText( "in_restart;" );
+	}
+#endif
 
 	// if this is the first frame of active play,
 	// execute the contents of activeAction now

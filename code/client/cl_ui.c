@@ -297,9 +297,12 @@ static void LAN_GetServerInfo( int source, int n, char *buf, int buflen ) {
 		Info_SetValueForKey( info, "gametype", va("%i",server->gameType));
 		Info_SetValueForKey( info, "nettype", va("%i",server->netType));
 		Info_SetValueForKey( info, "addr", NET_AdrToStringwPort(server->adr));
-		Info_SetValueForKey( info, "punkbuster", va("%i", server->punkbuster));
+		Info_SetValueForKey( info, "needpass", va("%i", server->g_needpass));
 		Info_SetValueForKey( info, "g_needpass", va("%i", server->g_needpass));
 		Info_SetValueForKey( info, "g_humanplayers", va("%i", server->g_humanplayers));
+		Info_SetValueForKey( info, "fdisable", va("%i", server->fdisable));
+		Info_SetValueForKey( info, "wdisable", va("%i", server->wdisable));
+		Info_SetValueForKey( info, "truejedi", va("%i", server->truejedi));
 		Q_strncpyz(buf, info, buflen);
 	} else {
 		if (buf) {
@@ -628,43 +631,8 @@ CLUI_GetCDKey
 ====================
 */
 static void CLUI_GetCDKey( char *buf, int buflen ) {
-#ifndef STANDALONE
-	cvar_t	*fs;
-	fs = Cvar_Get ("fs_game", "", CVAR_INIT|CVAR_SYSTEMINFO );
-	if (UI_usesUniqueCDKey() && fs && fs->string[0] != 0) {
-		Com_Memcpy( buf, &cl_cdkey[16], 16);
-		buf[16] = 0;
-	} else {
-		Com_Memcpy( buf, cl_cdkey, 16);
-		buf[16] = 0;
-	}
-#else
 	*buf = 0;
-#endif
 }
-
-
-/*
-====================
-CLUI_SetCDKey
-====================
-*/
-#ifndef STANDALONE
-static void CLUI_SetCDKey( char *buf ) {
-	cvar_t	*fs;
-	fs = Cvar_Get ("fs_game", "", CVAR_INIT|CVAR_SYSTEMINFO );
-	if (UI_usesUniqueCDKey() && fs && fs->string[0] != 0) {
-		Com_Memcpy( &cl_cdkey[16], buf, 16 );
-		cl_cdkey[32] = 0;
-		// set the flag so the fle will be written at the next opportunity
-		cvar_modifiedFlags |= CVAR_ARCHIVE;
-	} else {
-		Com_Memcpy( cl_cdkey, buf, 16 );
-		// set the flag so the fle will be written at the next opportunity
-		cvar_modifiedFlags |= CVAR_ARCHIVE;
-	}
-}
-#endif
 
 /*
 ====================
@@ -700,6 +668,49 @@ static int FloatAsInt( float f ) {
 	floatint_t fi;
 	fi.f = f;
 	return fi.i;
+}
+
+static unsigned int AnyLanguage_ReadCharFromString( const char *psText, int *piAdvanceCount, qboolean *pbIsTrailingPunctuation ) {
+	if( !piAdvanceCount )
+		return 0;
+	*piAdvanceCount = 1;
+	if( pbIsTrailingPunctuation ) {
+		*pbIsTrailingPunctuation = (qboolean) ( isspace( *psText ) || ispunct( *psText ) );
+	}
+	return *psText;
+}
+
+/*
+================
+CL_AdjustFrom640
+
+Adjusted for resolution and screen aspect ratio
+================
+*/
+void UI_AdjustFrom640( float *x, float *y, float *w, float *h ) {
+	float	xscale;
+	float	yscale;
+
+	// scale for screen sizes
+	xscale = cls.glconfig.vidWidth / 640.0;
+	yscale = cls.glconfig.vidHeight / 480.0;
+	if ( x ) {
+		*x *= xscale;
+	}
+	if ( y ) {
+		*y *= yscale;
+	}
+	if ( w ) {
+		*w *= xscale;
+	}
+	if ( h ) {
+		*h *= yscale;
+	}
+}
+
+void UI_RE_DrawStretchPic( float x, float y, float w, float h, float s1, float t1, float s2, float t2, qhandle_t hShader ) {
+	UI_AdjustFrom640( &x, &y, &w, &h );
+	re.DrawStretchPic( x, y, w, h, s1, t1, s2, t2, hShader );
 }
 
 /*
@@ -768,9 +779,10 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 		if(args[1] == EXEC_NOW
 		&& (!strncmp(VMA(2), "snd_restart", 11)
 		|| !strncmp(VMA(2), "vid_restart", 11)
-		|| !strncmp(VMA(2), "quit", 5)))
+		|| !strncmp(VMA(2), "quit", 5)
+		|| !strncmp(VMA(2), "game_restart", 12)))
 		{
-			Com_Printf (S_COLOR_YELLOW "turning EXEC_NOW '%.11s' into EXEC_INSERT\n", (const char*)VMA(2));
+			Com_Printf (S_COLOR_YELLOW "turning EXEC_NOW '%.12s' into EXEC_INSERT\n", (const char*)VMA(2));
 			args[1] = EXEC_INSERT;
 		}
 		Cbuf_ExecuteText( args[1], VMA(2) );
@@ -794,8 +806,8 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 	case UI_FS_GETFILELIST:
 		return FS_GetFileList( VMA(1), VMA(2), VMA(3), args[4] );
 
-	case UI_FS_SEEK:
-		return FS_Seek( args[1], args[2], args[3] );
+	//case UI_FS_SEEK:
+	//	return FS_Seek( args[1], args[2], args[3] );
 	
 	case UI_R_REGISTERMODEL:
 		return re.RegisterModel( VMA(1) );
@@ -805,6 +817,10 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 
 	case UI_R_REGISTERSHADERNOMIP:
 		return re.RegisterShaderNoMip( VMA(1) );
+
+	case UI_R_SHADERNAMEFROMINDEX:
+		re.ShaderNameFromIndex( VMA(1), args[2] );
+		return 0;
 
 	case UI_R_CLEARSCENE:
 		re.ClearScene();
@@ -831,7 +847,7 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 		return 0;
 
 	case UI_R_DRAWSTRETCHPIC:
-		re.DrawStretchPic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), args[9] );
+		UI_RE_DrawStretchPic( VMF(1), VMF(2), VMF(3), VMF(4), VMF(5), VMF(6), VMF(7), VMF(8), args[9] );
 		return 0;
 
   case UI_R_MODELBOUNDS:
@@ -847,7 +863,7 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 		return 0;
 
 	case UI_S_REGISTERSOUND:
-		return S_RegisterSound( VMA(1), args[2] );
+		return S_RegisterSound( VMA(1), qfalse );
 
 	case UI_S_STARTLOCALSOUND:
 		S_StartLocalSound( args[1], args[2] );
@@ -974,17 +990,48 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 		return 0;
 
 	case UI_SET_CDKEY:
-#ifndef STANDALONE
-		CLUI_SetCDKey( VMA(1) );
-#endif
 		return 0;
 	
-	case UI_SET_PBCLSTATUS:
-		return 0;	
+	//case UI_SET_PBCLSTATUS:
+	//	return 0;	
 
 	case UI_R_REGISTERFONT:
-		re.RegisterFont( VMA(1), args[2], VMA(3));
+		return re.RegisterFont( VMA(1) );
+
+	case UI_R_FONT_STRLENPIXELS:
+		return re.Font_StrLenPixels( VMA(1), args[2], VMF(3) );
+
+	case UI_R_FONT_STRLENCHARS:
+		return re.Font_StrLenChars( VMA(1) );
+
+	case UI_R_FONT_STRHEIGHTPIXELS:
+		return re.Font_HeightPixels( args[1], VMF(2) );
+
+	case UI_R_FONT_DRAWSTRING:
+		re.Font_DrawString( args[1], args[2], VMA(3), VMA(4), args[5], args[6], VMF(7) );
 		return 0;
+
+	case UI_LANGUAGE_ISASIAN:
+		return 0;
+
+	case UI_LANGUAGE_USESSPACES:
+		return 1;
+
+	case UI_ANYLANGUAGE_READCHARFROMSTRING:
+		{
+			return AnyLanguage_ReadCharFromString( VMA(1), VMA(2), VMA(3) );
+		}
+		return 0;// AnyLanguage_ReadCharFromString( const char *psText, int *piAdvanceCount, qboolean *pbIsTrailingPunctuation )
+
+	case UI_SP_GETNUMLANGUAGES:
+		return 1;
+
+	case UI_SP_GETLANGUAGENAME:
+		Q_strncpyz( VMA(2), "English", 128 ); // We assume that the buffer size used is only ever 128
+		return 0;
+
+	case UI_SP_GETSTRINGTEXTSTRING:
+		return SE_GetStringBuffer( VMA(1), VMA(2), args[3] );
 
 	case UI_MEMSET:
 		Com_Memset( VMA(1), args[2], args[3] );
@@ -1026,12 +1073,17 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 		return botlib_export->PC_ReadTokenHandle( args[1], VMA(2) );
 	case UI_PC_SOURCE_FILE_AND_LINE:
 		return botlib_export->PC_SourceFileAndLine( args[1], VMA(2), VMA(3) );
+	case UI_PC_LOAD_GLOBAL_DEFINES:
+		return botlib_export->PC_LoadGlobalDefines( VMA(1) );
+	case UI_PC_REMOVE_ALL_GLOBAL_DEFINES:
+		botlib_export->PC_RemoveAllGlobalDefines();
+		return 0;
 
 	case UI_S_STOPBACKGROUNDTRACK:
 		S_StopBackgroundTrack();
 		return 0;
 	case UI_S_STARTBACKGROUNDTRACK:
-		S_StartBackgroundTrack( VMA(1), VMA(2));
+		S_StartBackgroundTrack( VMA(1), VMA(2)); // will need 3rd arg for cgame
 		return 0;
 
 	case UI_REAL_TIME:
@@ -1061,6 +1113,46 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 
 	case UI_VERIFY_CDKEY:
 		return CL_CDKeyValidate(VMA(1), VMA(2));
+
+	case UI_G2_GETGLANAME:
+		strcpy(VMA(3), "models/players/_humanoid/_humanoid");
+		return 0;
+
+	case UI_G2_LISTSURFACES:
+	case UI_G2_LISTBONES:
+	case UI_G2_SETMODELS:
+	case UI_G2_HAVEWEGHOULMODELS:
+	case UI_G2_GETBOLT:
+	case UI_G2_GETBOLT_NOREC:
+	case UI_G2_GETBOLT_NOREC_NOROT:
+	case UI_G2_INITGHOUL2MODEL:
+	case UI_G2_COLLISIONDETECT:
+	case UI_G2_COLLISIONDETECTCACHE:
+	case UI_G2_CLEANMODELS:
+	case UI_G2_ANGLEOVERRIDE:
+	case UI_G2_PLAYANIM:
+	case UI_G2_GETBONEANIM:
+	case UI_G2_GETBONEFRAME:
+	case UI_G2_COPYGHOUL2INSTANCE:
+	case UI_G2_COPYSPECIFICGHOUL2MODEL:
+	case UI_G2_DUPLICATEGHOUL2INSTANCE:
+	case UI_G2_HASGHOUL2MODELONINDEX:
+	case UI_G2_REMOVEGHOUL2MODEL:
+	case UI_G2_ADDBOLT:
+	case UI_G2_SETBOLTON:
+	case UI_G2_SETROOTSURFACE:
+	case UI_G2_SETSURFACEONOFF:
+	case UI_G2_SETNEWORIGIN:
+	case UI_G2_GETTIME:
+	case UI_G2_SETTIME:
+	case UI_G2_SETRAGDOLL:
+	case UI_G2_ANIMATEG2MODELS:
+	case UI_G2_SETBONEIKSTATE:
+	case UI_G2_IKMOVE:
+	case UI_G2_GETSURFACENAME:
+	case UI_G2_SETSKIN:
+	case UI_G2_ATTACHG2MODEL:
+		return 0;
 		
 	default:
 		Com_Error( ERR_DROP, "Bad UI system trap: %ld", (long int) args[0] );
@@ -1097,16 +1189,8 @@ void CL_InitUI( void ) {
 	int		v;
 	vmInterpret_t		interpret;
 
-	// load the dll or bytecode
-	interpret = Cvar_VariableValue("vm_ui");
-	if(cl_connectedToPureServer)
-	{
-		// if sv_pure is set we only allow qvms to be loaded
-		if(interpret != VMI_COMPILED && interpret != VMI_BYTECODE)
-			interpret = VMI_COMPILED;
-	}
-
-	uivm = VM_Create( "ui", CL_UISystemCalls, interpret );
+	// load the dll
+	uivm = VM_Create( "ui", CL_UISystemCalls, VMI_NATIVE );
 	if ( !uivm ) {
 		Com_Error( ERR_FATAL, "VM_Create on UI failed" );
 	}
@@ -1131,16 +1215,6 @@ void CL_InitUI( void ) {
 		VM_Call( uivm, UI_INIT, (clc.state >= CA_AUTHORIZING && clc.state < CA_ACTIVE) );
 	}
 }
-
-#ifndef STANDALONE
-qboolean UI_usesUniqueCDKey( void ) {
-	if (uivm) {
-		return (VM_Call( uivm, UI_HASUNIQUECDKEY) == qtrue);
-	} else {
-		return qfalse;
-	}
-}
-#endif
 
 /*
 ====================

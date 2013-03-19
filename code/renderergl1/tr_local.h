@@ -45,6 +45,9 @@ typedef unsigned int glIndex_t;
 #define MAX_STATES_PER_SHADER 32
 #define MAX_STATE_NAME 32
 
+#define FONT_BITS	5
+#define MAX_FONTS		(1<<FONT_BITS)
+
 
 
 typedef struct dlight_s {
@@ -121,7 +124,9 @@ typedef enum {
 	GF_SAWTOOTH, 
 	GF_INVERSE_SAWTOOTH, 
 
-	GF_NOISE
+	GF_NOISE,
+
+	GF_RANDOM
 
 } genFunc_t;
 
@@ -169,6 +174,7 @@ typedef enum {
 	CGEN_ONE_MINUS_VERTEX,
 	CGEN_WAVEFORM,			// programmatically generated
 	CGEN_LIGHTING_DIFFUSE,
+	CGEN_LIGHTING_DIFFUSE_ENTITY,
 	CGEN_FOG,				// standard fog
 	CGEN_CONST				// fixed color
 } colorGen_t;
@@ -268,6 +274,8 @@ typedef struct {
 	qboolean		isLightmap;
 	qboolean		vertexLightmap;
 	qboolean		isVideoMap;
+	qboolean		isOneShot;
+	qboolean		didOneShot;
 } textureBundle_t;
 
 #define NUM_TEXTURE_BUNDLES 2
@@ -290,6 +298,7 @@ typedef struct {
 	acff_t			adjustColorsForFog;
 
 	qboolean		isDetail;
+	qboolean		isGlow;
 } shaderStage_t;
 
 struct shaderCommands_s;
@@ -444,6 +453,12 @@ typedef struct skin_s {
 	skinSurface_t	*surfaces[MD3_MAX_SURFACES];
 } skin_t;
 
+typedef struct font_s {
+	char		name[MAX_QPATH];
+	qhandle_t	imageHandle;
+	dfontdat_t	fontData;
+} font_t;
+
 
 typedef struct {
 	int			originalBrushNumber;
@@ -499,6 +514,7 @@ typedef enum {
 	SF_MDR,
 #endif
 	SF_IQM,
+	SF_GLM,
 	SF_FLARE,
 	SF_ENTITY,				// beams, rails, lightning, etc that can be determined by entity
 	SF_DISPLAY_LIST,
@@ -696,6 +712,9 @@ typedef struct {
 	int			numSurfaces;
 } bmodel_t;
 
+// ydnar: optimization
+#define WORLD_MAX_SKY_NODES 32
+
 typedef struct {
 	char		name[MAX_QPATH];		// ie: maps/tim_dm2.bsp
 	char		baseName[MAX_QPATH];	// ie: tim_dm2
@@ -713,6 +732,9 @@ typedef struct {
 	int			numnodes;		// includes leafs
 	int			numDecisionNodes;
 	mnode_t		*nodes;
+	
+	int			numSkyNodes;
+	mnode_t		**skyNodes;     // ydnar: don't walk the entire bsp when rendering sky
 
 	int			numsurfaces;
 	msurface_t	*surfaces;
@@ -722,12 +744,30 @@ typedef struct {
 
 	int			numfogs;
 	fog_t		*fogs;
+	
+	vec3_t		lightGridSize;
+	vec3_t		lightGridMins;
+	int			lightGridBounds[4];
+	dgrid_t		*lightGridData;
+	int			numLightGridPoints;
+	dgrid_t		**lightGridArray;
+	int			numLightGridArrayItems;
+
+#if 0
 
 	vec3_t		lightGridOrigin;
 	vec3_t		lightGridSize;
 	vec3_t		lightGridInverseSize;
 	int			lightGridBounds[3];
-	byte		*lightGridData;
+	dgrid_t		*lightGridData;
+	int			numLightGridPoints;
+	dgrid_t		**lightGridArray;
+	int			numLightGridArrayItems;
+
+#endif
+
+	float		ambientScale;
+	vec3_t		ambientColor;
 
 
 	int			numClusters;
@@ -738,6 +778,8 @@ typedef struct {
 
 	char		*entityString;
 	char		*entityParsePoint;
+
+	float		distanceCull;
 } world_t;
 
 //======================================================================
@@ -750,7 +792,9 @@ typedef enum {
 #ifdef RAVENMD4
 	MOD_MDR,
 #endif
-	MOD_IQM
+	MOD_IQM,
+	MOD_GLM,
+	MOD_GLA
 } modtype_t;
 
 typedef struct model_s {
@@ -761,7 +805,7 @@ typedef struct model_s {
 	int			dataSize;	// just for listing purposes
 	bmodel_t	*bmodel;		// only if type == MOD_BRUSH
 	md3Header_t	*md3[MD3_MAX_LODS];	// only if type == MOD_MESH
-	void	*modelData;			// only if type == (MOD_MD4 | MOD_MDR | MOD_IQM)
+	void	*modelData;			// only if type == (MOD_MD4 | MOD_MDR | MOD_IQM | MOD_GLM | MOD_GLA)
 
 	int			 numLods;
 } model_t;
@@ -776,6 +820,22 @@ int			R_LerpTag( orientation_t *tag, qhandle_t handle, int startFrame, int endFr
 void		R_ModelBounds( qhandle_t handle, vec3_t mins, vec3_t maxs );
 
 void		R_Modellist_f (void);
+
+typedef struct CGhoul2Info_s {
+	mg_animstate_t	anims[4];
+	//model_t		*model[4];
+
+	//model_t		*anim;
+
+	int			modelFlags;
+	int			lodBias;
+
+	int			index;
+	int			ent_owner;
+
+	//char		modelName[MAX_QPATH];
+	//char		animName[MAX_QPATH];
+} CGhoul2Info_v;
 
 //====================================================
 
@@ -875,6 +935,11 @@ typedef struct {
 	trRefEntity_t	entity2D;	// currentEntity will point at this when doing 2D rendering
 } backEndState_t;
 
+typedef struct
+{
+	float rgb[3];						// 0.0 - 2.0
+} lightstyle_t;
+
 /*
 ** trGlobals_t 
 **
@@ -917,6 +982,8 @@ typedef struct {
 	int						numLightmaps;
 	image_t					**lightmaps;
 
+	lightstyle_t			lightStyles[MAX_LIGHT_STYLES];
+
 	trRefEntity_t			*currentEntity;
 	trRefEntity_t			worldEntity;		// point currentEntity at this when rendering world
 	int						currentEntityNum;
@@ -948,6 +1015,14 @@ typedef struct {
 	model_t					*models[MAX_MOD_KNOWN];
 	int						numModels;
 
+	// g2 anim instances
+//	mg_animstate_t			*animstates[MAX_MOD_KNOWN];
+//	int						numAnimStates;
+
+	// g2 api model instances
+	CGhoul2Info_v			*g2Instances[MAX_MOD_KNOWN];
+	int						numG2Instances;
+
 	int						numImages;
 	image_t					*images[MAX_DRAWIMAGES];
 
@@ -961,12 +1036,21 @@ typedef struct {
 	int						numSkins;
 	skin_t					*skins[MAX_SKINS];
 
+	int						numFonts;
+	font_t					*fonts[MAX_FONTS];
+
 	float					sinTable[FUNCTABLE_SIZE];
 	float					squareTable[FUNCTABLE_SIZE];
 	float					triangleTable[FUNCTABLE_SIZE];
 	float					sawToothTable[FUNCTABLE_SIZE];
 	float					inverseSawToothTable[FUNCTABLE_SIZE];
+	float					noiseTable[FUNCTABLE_SIZE];
 	float					fogTable[FOG_TABLE_SIZE];
+
+	float					sinTableByte[256];
+
+	// JKA: variable to determine if current shader uses 'notc'
+	qboolean				allowCompression;
 } trGlobals_t;
 
 extern backEndState_t	backEnd;
@@ -1064,7 +1148,7 @@ extern	cvar_t	*r_greyscale;
 extern	cvar_t	*r_ignoreGLErrors;
 
 extern	cvar_t	*r_overBrightBits;
-extern	cvar_t	*r_mapOverBrightBits;
+//extern	cvar_t	*r_mapOverBrightBits;
 
 extern	cvar_t	*r_debugSurface;
 extern	cvar_t	*r_simpleMipMaps;
@@ -1075,6 +1159,10 @@ extern	cvar_t	*r_debugSort;
 extern	cvar_t	*r_printShaders;
 
 extern cvar_t	*r_marksOnTriangleMeshes;
+
+extern	cvar_t	*fx_countScale;
+extern	cvar_t	*fx_nearCull;
+extern	cvar_t	*fx_debug;
 
 //====================================================================
 
@@ -1151,7 +1239,8 @@ void	GL_Cull( int cullType );
 #define GLS_ATEST_GT_0							0x10000000
 #define GLS_ATEST_LT_80							0x20000000
 #define GLS_ATEST_GE_80							0x40000000
-#define		GLS_ATEST_BITS						0x70000000
+#define GLS_ATEST_GE_120						0x80000000
+#define	GLS_ATEST_BITS							0xF0000000 //  0x70000000
 
 #define GLS_DEFAULT			GLS_DEPTHMASK_TRUE
 
@@ -1163,9 +1252,18 @@ void		RE_BeginRegistration( glconfig_t *glconfig );
 void		RE_LoadWorldMap( const char *mapname );
 void		RE_SetWorldVisData( const byte *vis );
 qhandle_t	RE_RegisterModel( const char *name );
+qboolean	RE_Ghoul2Valid( void *ptr );
+qboolean	RE_Ghoul2ModelOnIndex( void *ptr, int modelIndex );
+void		RE_GetGLAName( void *ptr, int modelindex, char *buffer );
+int			RE_InitGhoul2Model( void **ptr, const char *filename, int modelIndex, qhandle_t customSkin, qhandle_t customShader, int modelFlags, int lodBias );
+void		RE_CleanGhoul2( void **ptr );
+int			RE_CopyGhoul2(void *from, void *to, int modelIndex);
+void		RE_CopyGhoul2Specific(void *from, int modelFrom, void *to, int modelTo);
+void		RE_DuplicateGhoul2(void *from, void **to);
 qhandle_t	RE_RegisterSkin( const char *name );
 void		RE_Shutdown( qboolean destroyWindow );
 
+void		R_GetDistanceCull( float *value );
 qboolean	R_GetEntityToken( char *buffer, int size );
 
 model_t		*R_AllocModel( void );
@@ -1177,9 +1275,9 @@ void		R_GammaCorrect( byte *buffer, int bufSize );
 
 void	R_ImageList_f( void );
 void	R_SkinList_f( void );
+void	R_FontList_f( void );
 // https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=516
 const void *RB_TakeScreenshotCmd( const void *data );
-void	R_ScreenShot_f( void );
 
 void	R_InitFogTable( void );
 float	R_FogFactor( float s, float t );
@@ -1415,11 +1513,16 @@ void R_MDRAddAnimSurfaces( trRefEntity_t *ent );
 void RB_MDRSurfaceAnim( md4Surface_t *surface );
 #endif
 qboolean R_LoadIQM (model_t *mod, void *buffer, int filesize, const char *name );
+qboolean R_LoadGLM (model_t *mod, void *buffer, int filesize, const char *name );
+qboolean R_LoadGLA (model_t *mod, void *buffer, int filesize, const char *name );
 void R_AddIQMSurfaces( trRefEntity_t *ent );
 void RB_IQMSurfaceAnim( surfaceType_t *surface );
 int R_IQMLerpTag( orientation_t *tag, iqmData_t *data,
                   int startFrame, int endFrame,
                   float frac, const char *tagName );
+
+void RB_SurfaceMyGhoul( surfaceType_t *surface );
+void R_AddMyGhoulSurfaces( trRefEntity_t *ent );
 
 /*
 =============================================================
@@ -1524,6 +1627,8 @@ typedef struct {
 	float	w, h;
 	float	s1, t1;
 	float	s2, t2;
+	float	angle; //rotatepic only
+	qboolean	centered; //rotatedpic2 = true, else false
 } stretchPicCommand_t;
 
 typedef struct {
@@ -1534,6 +1639,12 @@ typedef struct {
 	int		numDrawSurfs;
 } drawSurfsCommand_t;
 
+typedef enum {
+	SSF_TGA,
+	SSF_JPEG,
+	SSF_PNG
+} ssFormat_t;
+
 typedef struct {
 	int commandId;
 	int x;
@@ -1541,7 +1652,7 @@ typedef struct {
 	int width;
 	int height;
 	char *fileName;
-	qboolean jpeg;
+	ssFormat_t format;
 } screenshotCommand_t;
 
 typedef struct {
@@ -1569,6 +1680,7 @@ typedef enum {
 	RC_END_OF_LIST,
 	RC_SET_COLOR,
 	RC_STRETCH_PIC,
+	RC_ROTATED_PIC,
 	RC_DRAW_SURFS,
 	RC_DRAW_BUFFER,
 	RC_SWAP_BUFFERS,
@@ -1614,14 +1726,19 @@ void R_AddDrawSurfCmd( drawSurf_t *drawSurfs, int numDrawSurfs );
 void RE_SetColor( const float *rgba );
 void RE_StretchPic ( float x, float y, float w, float h, 
 					  float s1, float t1, float s2, float t2, qhandle_t hShader );
+void RE_RotatedPic ( float x, float y, float w, float h,
+					  float s1, float t1, float s2, float t2, float angle, qboolean centered, qhandle_t hShader );
 void RE_BeginFrame( stereoFrame_t stereoFrame );
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec );
 void RE_SaveJPG(char * filename, int quality, int image_width, int image_height,
                 unsigned char *image_buffer, int padding);
+void RE_SavePNG(char * filename, int image_width, int image_height, byte *image_buffer, int num_bytes, int padding, qboolean flip);
 size_t RE_SaveJPGToBuffer(byte *buffer, size_t bufSize, int quality,
 		          int image_width, int image_height, byte *image_buffer, int padding);
 void RE_TakeVideoFrame( int width, int height,
 		byte *captureBuffer, byte *encodeBuffer, qboolean motionJpeg );
+
+extern int skyboxportal;
 
 
 #endif //TR_LOCAL_H

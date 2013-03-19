@@ -686,7 +686,10 @@ void MSG_WriteDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *
 		from->rightmove == to->rightmove &&
 		from->upmove == to->upmove &&
 		from->buttons == to->buttons &&
-		from->weapon == to->weapon) {
+		from->weapon == to->weapon &&
+		from->forcesel == to->forcesel &&
+		from->invensel == to->invensel &&
+		from->generic_cmd == to->generic_cmd ) {
 			MSG_WriteBits( msg, 0, 1 );				// no change
 			oldsize += 7;
 			return;
@@ -701,6 +704,9 @@ void MSG_WriteDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *
 	MSG_WriteDeltaKey( msg, key, from->upmove, to->upmove, 8 );
 	MSG_WriteDeltaKey( msg, key, from->buttons, to->buttons, 16 );
 	MSG_WriteDeltaKey( msg, key, from->weapon, to->weapon, 8 );
+	MSG_WriteDeltaKey( msg, key, from->forcesel, to->forcesel, 8 );
+	MSG_WriteDeltaKey( msg, key, from->invensel, to->invensel, 8 );
+	MSG_WriteDeltaKey( msg, key, from->generic_cmd, to->generic_cmd, 8 );
 }
 
 
@@ -731,6 +737,9 @@ void MSG_ReadDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *t
 			to->upmove = -127;
 		to->buttons = MSG_ReadDeltaKey( msg, key, from->buttons, 16);
 		to->weapon = MSG_ReadDeltaKey( msg, key, from->weapon, 8);
+		to->forcesel = MSG_ReadDeltaKey( msg, key, from->forcesel, 8 );
+		to->invensel = MSG_ReadDeltaKey( msg, key, from->invensel, 8 );
+		to->generic_cmd = MSG_ReadDeltaKey( msg, key, from->generic_cmd, 8 );
 	} else {
 		to->angles[0] = from->angles[0];
 		to->angles[1] = from->angles[1];
@@ -740,6 +749,9 @@ void MSG_ReadDeltaUsercmdKey( msg_t *msg, int key, usercmd_t *from, usercmd_t *t
 		to->upmove = from->upmove;
 		to->buttons = from->buttons;
 		to->weapon = from->weapon;
+		to->forcesel    = from->forcesel;
+		to->invensel    = from->invensel;
+		to->generic_cmd = from->generic_cmd;
 	}
 }
 
@@ -776,59 +788,141 @@ typedef struct {
 // using the stringizing operator to save typing...
 #define	NETF(x) #x,(size_t)&((entityState_t*)0)->x
 
-netField_t	entityStateFields[] = 
+/* Normal EntState */
+netField_t entityStateFields [] =
 {
-{ NETF(pos.trTime), 32 },
-{ NETF(pos.trBase[0]), 0 },
-{ NETF(pos.trBase[1]), 0 },
-{ NETF(pos.trDelta[0]), 0 },
-{ NETF(pos.trDelta[1]), 0 },
-{ NETF(pos.trBase[2]), 0 },
-{ NETF(apos.trBase[1]), 0 },
-{ NETF(pos.trDelta[2]), 0 },
-{ NETF(apos.trBase[0]), 0 },
-{ NETF(event), 10 },
-{ NETF(angles2[1]), 0 },
-{ NETF(eType), 8 },
-{ NETF(torsoAnim), 8 },
-{ NETF(eventParm), 8 },
-{ NETF(legsAnim), 8 },
-{ NETF(groundEntityNum), GENTITYNUM_BITS },
-{ NETF(pos.trType), 8 },
-{ NETF(eFlags), 19 },
-{ NETF(otherEntityNum), GENTITYNUM_BITS },
-{ NETF(weapon), 8 },
-{ NETF(clientNum), 8 },
-{ NETF(angles[1]), 0 },
-{ NETF(pos.trDuration), 32 },
-{ NETF(apos.trType), 8 },
-{ NETF(origin[0]), 0 },
-{ NETF(origin[1]), 0 },
-{ NETF(origin[2]), 0 },
-{ NETF(solid), 24 },
-{ NETF(powerups), MAX_POWERUPS },
-{ NETF(modelindex), 8 },
-{ NETF(otherEntityNum2), GENTITYNUM_BITS },
-{ NETF(loopSound), 8 },
-{ NETF(generic1), 8 },
-{ NETF(origin2[2]), 0 },
-{ NETF(origin2[0]), 0 },
-{ NETF(origin2[1]), 0 },
-{ NETF(modelindex2), 8 },
-{ NETF(angles[0]), 0 },
-{ NETF(time), 32 },
-{ NETF(apos.trTime), 32 },
-{ NETF(apos.trDuration), 32 },
-{ NETF(apos.trBase[2]), 0 },
-{ NETF(apos.trDelta[0]), 0 },
-{ NETF(apos.trDelta[1]), 0 },
-{ NETF(apos.trDelta[2]), 0 },
-{ NETF(time2), 32 },
-{ NETF(angles[2]), 0 },
-{ NETF(angles2[0]), 0 },
-{ NETF(angles2[2]), 0 },
-{ NETF(constantLight), 32 },
-{ NETF(frame), 16 }
+	{ NETF( pos.trTime ),                   32  },
+	{ NETF( pos.trBase[1] ),                 0  },
+	{ NETF( pos.trBase[0] ),                 0  },
+	{ NETF( apos.trBase[1] ),                0  },
+	{ NETF( pos.trBase[2] ),                 0  },
+	{ NETF( apos.trBase[0] ),                0  },
+	{ NETF( pos.trDelta[0] ),                0  },
+	{ NETF( pos.trDelta[1] ),                0  },
+	{ NETF( eType ),                         8  },
+	{ NETF( angles[1] ),                     0  },
+	{ NETF( pos.trDelta[2] ),                0  },
+	{ NETF( origin[0] ),                     0  },
+	{ NETF( origin[1] ),                     0  },
+	{ NETF( origin[2] ),                     0  },
+	{ NETF( weapon ),                        8  },
+	{ NETF( apos.trType ),                   8  },
+	{ NETF( legsAnim ),                     16  },
+	{ NETF( torsoAnim ),                    16  },
+	{ NETF( genericenemyindex ),            32  },
+	{ NETF( eFlags ),                       32  }, // Q3: 19 (can this be dropped a bit?)
+	{ NETF( pos.trDuration ),               32  },
+	{ NETF( teamowner ),                     8  },
+	{ NETF( groundEntityNum ), GENTITYNUM_BITS  },
+	{ NETF( pos.trType ),                    8  },
+	{ NETF( angles[2] ),                     0  },
+	{ NETF( angles[0] ),                     0  },
+	{ NETF( solid ),                        24  },
+	{ NETF( fireflag ),                      2  },
+	{ NETF( event ),                        10  },
+	{ NETF( customRGBA[3] ),                 8  },
+	{ NETF( customRGBA[0] ),                 8  },
+	{ NETF( speed ),                         0  },
+	{ NETF( clientNum ),                    10  },
+	{ NETF( apos.trBase[2] ),                0  },
+	{ NETF( apos.trTime ),                  32  },
+	{ NETF( customRGBA[1] ),                 8  },
+	{ NETF( customRGBA[2] ),                 8  },
+	{ NETF( saberEntityNum ),  GENTITYNUM_BITS  },
+	{ NETF( g2radius ),                      8  },
+	{ NETF( otherEntityNum2 ), GENTITYNUM_BITS  },
+	{ NETF( owner ),           GENTITYNUM_BITS  },
+	{ NETF( modelindex2 ),                   8  },
+	{ NETF( eventParm ),                     8  },
+	{ NETF( saberMove ),                     8  },
+	{ NETF( apos.trDelta[1] ),               0  },
+	{ NETF( boneAngles1[1] ),                0  },
+	{ NETF( modelindex ),                  -16  },
+	{ NETF( emplacedOwner ),                32  },
+	{ NETF( apos.trDelta[0] ),               0  },
+	{ NETF( apos.trDelta[2] ),               0  },
+	{ NETF( torsoFlip ),                     1  }, // bool?
+	{ NETF( angles2[1] ),                    0  },
+	{ NETF( lookTarget ),      GENTITYNUM_BITS  },
+	{ NETF( origin2[2] ),                    0  },
+	{ NETF( modelGhoul2 ),                   8  },
+	{ NETF( loopSound ),                     8  },
+	{ NETF( origin2[0] ),                    0  },
+	{ NETF( shouldtarget ),                  1  }, // bool?
+	{ NETF( trickedentindex ),              16  },
+	{ NETF( otherEntityNum ),  GENTITYNUM_BITS  },
+	{ NETF( origin2[1] ),                    0  },
+	{ NETF( time2 ),                        32  },
+	{ NETF( legsFlip ),                      1  }, // bool?
+	{ NETF( bolt2 ),                        10  },
+	{ NETF( constantLight ),                32  },
+	{ NETF( time ),                         32  },
+	{ NETF( hasLookTarget ),                 1  }, // bool?
+	{ NETF( boneAngles1[2] ),                0  },
+	{ NETF( activeForcePass ),               6  },
+	{ NETF( health ),                       10  },
+	{ NETF( loopIsSoundset ),                1  }, // bool?
+	{ NETF( saberHolstered ),                2  },
+	{ NETF( npcSaber1 ),                     9  },
+	{ NETF( maxhealth ),                    10  },
+	{ NETF( trickedentindex2 ),             16  },
+	{ NETF( forcePowersActive ),            32  },
+	{ NETF( iModelScale ),                  10  },
+	{ NETF( powerups ),           MAX_POWERUPS  },
+	{ NETF( soundSetIndex ),                 8  },
+	{ NETF( brokenLimbs ),                   8  },
+	{ NETF( csSounds_Std ),                  8  },
+	{ NETF( saberInFlight ),                 1  }, // bool?
+	{ NETF( angles2[0] ),                    0  },
+	{ NETF( frame ),                        16  },
+	{ NETF( angles2[2] ),                    0  },
+	{ NETF( forceFrame ),                   16  },
+	{ NETF( generic1 ),                      8  },
+	{ NETF( boneIndex1 ),                    6  },
+	{ NETF( NPC_class ),                     8  },
+	{ NETF( apos.trDuration ),              32  },
+	{ NETF( boneOrient ),                    9  },
+	{ NETF( bolt1 ),                         8  },
+	{ NETF( trickedentindex3 ),             16  },
+	{ NETF( m_iVehicleNum ),                10  },
+	{ NETF( trickedentindex4 ),             16  },
+	{ NETF( surfacesOff ),                  32  },
+	{ NETF( eFlags2 ),                      10  },
+	{ NETF( isJediMaster ),                  1  }, // bool?
+	{ NETF( isPortalEnt ),                   1  }, // bool?
+	{ NETF( heldByClient ),                  6  },
+	{ NETF( ragAttach ),                    10  },
+	{ NETF( boltToPlayer ),                  6  },
+	{ NETF( npcSaber2 ),                     9  },
+	{ NETF( csSounds_Combat ),               8  },
+	{ NETF( csSounds_Extra ),                8  },
+	{ NETF( csSounds_Jedi ),                 8  },
+	{ NETF( surfacesOn ),                   32  },
+	{ NETF( boneIndex2 ),                    6  },
+	{ NETF( boneIndex3 ),                    6  },
+	{ NETF( boneIndex4 ),                    6  },
+	{ NETF( boneAngles1[0] ),                0  },
+	{ NETF( boneAngles2[0] ),                0  },
+	{ NETF( boneAngles2[1] ),                0  },
+	{ NETF( boneAngles2[2] ),                0  },
+	{ NETF( boneAngles3[0] ),                0  },
+	{ NETF( boneAngles3[1] ),                0  },
+	{ NETF( boneAngles3[2] ),                0  },
+	{ NETF( boneAngles4[0] ),                0  },
+	{ NETF( boneAngles4[1] ),                0  },
+	{ NETF( boneAngles4[2] ),                0  },
+	{ NETF( userInt1 ),                      1  },
+	{ NETF( userInt2 ),                      1  },
+	{ NETF( userInt3 ),                      1  },
+	{ NETF( userFloat1 ),                    1  },
+	{ NETF( userFloat2 ),                    1  },
+	{ NETF( userFloat3 ),                    1  },
+	{ NETF( userVec1[0] ),                   1  },
+	{ NETF( userVec1[1] ),                   1  },
+	{ NETF( userVec1[2] ),                   1  },
+	{ NETF( userVec2[0] ),                   1  },
+	{ NETF( userVec2[1] ),                   1  },
+	{ NETF( userVec2[2] ),                   1  }
 };
 
 
@@ -836,6 +930,27 @@ netField_t	entityStateFields[] =
 // the float will be sent with FLOAT_INT_BITS, otherwise all 32 bits will be sent
 #define	FLOAT_INT_BITS	13
 #define	FLOAT_INT_BIAS	(1<<(FLOAT_INT_BITS-1))
+
+#define NETF_OVERRIDES "ext_data/Mp/netf_overrides.txt"
+void MSG_LoadEntitystateOverrides( void ) {
+#if 0
+	union {
+		char	*c;
+		void	*v;
+	} f;
+	char *text_p, *token;
+	int len;
+
+	len = FS_ReadFile( NETF_OVERRIDES, &f.v );
+
+	if( len <= 0 || !f.c ) {
+		Com_Printf( S_COLOR_RED "ERROR: Couldn't load entity netfield overrides from \"%s\"\n", NETF_OVERRIDES );
+		return;
+	}
+
+	text_p = f.c;
+#endif
+}
 
 /*
 ==================
@@ -1093,57 +1208,387 @@ plyer_state_t communication
 // using the stringizing operator to save typing...
 #define	PSF(x) #x,(size_t)&((playerState_t*)0)->x
 
-netField_t	playerStateFields[] = 
+/* Regular PlayerState */
+netField_t playerStateFields [] =
 {
-{ PSF(commandTime), 32 },				
-{ PSF(origin[0]), 0 },
-{ PSF(origin[1]), 0 },
-{ PSF(bobCycle), 8 },
-{ PSF(velocity[0]), 0 },
-{ PSF(velocity[1]), 0 },
-{ PSF(viewangles[1]), 0 },
-{ PSF(viewangles[0]), 0 },
-{ PSF(weaponTime), -16 },
-{ PSF(origin[2]), 0 },
-{ PSF(velocity[2]), 0 },
-{ PSF(legsTimer), 8 },
-{ PSF(pm_time), -16 },
-{ PSF(eventSequence), 16 },
-{ PSF(torsoAnim), 8 },
-{ PSF(movementDir), 4 },
-{ PSF(events[0]), 8 },
-{ PSF(legsAnim), 8 },
-{ PSF(events[1]), 8 },
-{ PSF(pm_flags), 16 },
-{ PSF(groundEntityNum), GENTITYNUM_BITS },
-{ PSF(weaponstate), 4 },
-{ PSF(eFlags), 16 },
-{ PSF(externalEvent), 10 },
-{ PSF(gravity), 16 },
-{ PSF(speed), 16 },
-{ PSF(delta_angles[1]), 16 },
-{ PSF(externalEventParm), 8 },
-{ PSF(viewheight), -8 },
-{ PSF(damageEvent), 8 },
-{ PSF(damageYaw), 8 },
-{ PSF(damagePitch), 8 },
-{ PSF(damageCount), 8 },
-{ PSF(generic1), 8 },
-{ PSF(pm_type), 8 },					
-{ PSF(delta_angles[0]), 16 },
-{ PSF(delta_angles[2]), 16 },
-{ PSF(torsoTimer), 12 },
-{ PSF(eventParms[0]), 8 },
-{ PSF(eventParms[1]), 8 },
-{ PSF(clientNum), 8 },
-{ PSF(weapon), 5 },
-{ PSF(viewangles[2]), 0 },
-{ PSF(grapplePoint[0]), 0 },
-{ PSF(grapplePoint[1]), 0 },
-{ PSF(grapplePoint[2]), 0 },
-{ PSF(jumppad_ent), GENTITYNUM_BITS },
-{ PSF(loopSound), 16 }
+	{ PSF( commandTime ),                    32 },
+	{ PSF( origin[1] ),                       0 },
+	{ PSF( origin[0] ),                       0 },
+	{ PSF( viewangles[1] ),                   0 },
+	{ PSF( viewangles[0] ),                   0 },
+	{ PSF( origin[2] ),                       0 },
+	{ PSF( velocity[0] ),                     0 },
+	{ PSF( velocity[1] ),                     0 },
+	{ PSF( velocity[2] ),                     0 },
+	{ PSF( bobCycle ),                        8 },
+	{ PSF( weaponTime ),                    -16 },
+	{ PSF( delta_angles[1] ),                16 },
+	{ PSF( speed ),                           0 },
+	{ PSF( legsAnim ),                       16 },
+	{ PSF( delta_angles[0] ),                16 },
+	{ PSF( torsoAnim ),                      16 },
+	{ PSF( groundEntityNum ),   GENTITYNUM_BITS },
+	{ PSF( eFlags ),                         32 },
+	{ PSF( fd.forcePower ),                   8 },
+	{ PSF( eventSequence ),                  16 },
+	{ PSF( torsoTimer ),                     16 },
+	{ PSF( legsTimer ),                      16 },
+	{ PSF( viewheight ),                     -8 },
+	{ PSF( fd.saberAnimLevel ),               4 },
+	{ PSF( rocketLockIndex ),   GENTITYNUM_BITS },
+	{ PSF( fd.saberDrawAnimLevel ),           4 },
+	{ PSF( genericEnemyIndex ),              32 },
+	{ PSF( events[0] ),                      10 },
+	{ PSF( events[1] ),                      10 },
+	{ PSF( customRGBA[0] ),                   8 },
+	{ PSF( movementDir ),                     4 },
+	{ PSF( saberEntityNum ),    GENTITYNUM_BITS },
+	{ PSF( customRGBA[3] ),                   8 },
+	{ PSF( weaponstate ),                     4 },
+	{ PSF( saberMove ),                      32 },
+	{ PSF( standheight ),                    10 },
+	{ PSF( crouchheight ),                   10 },
+	{ PSF( basespeed ),                     -16 },
+	{ PSF( pm_flags ),                       16 },
+	{ PSF( jetpackFuel ),                     8 },
+	{ PSF( cloakFuel ),                       8 },
+	{ PSF( pm_time ),                       -16 },
+	{ PSF( customRGBA[1] ),                   8 },
+	{ PSF( clientNum ),         GENTITYNUM_BITS }, // can be npc now
+	{ PSF( duelIndex ),         GENTITYNUM_BITS },
+	{ PSF( customRGBA[2] ),                   8 },
+	{ PSF( gravity ),                        16 },
+	{ PSF( weapon ),                          8 },
+	{ PSF( delta_angles[2] ),                16 },
+	{ PSF( saberCanThrow ),                   1 },
+	{ PSF( viewangles[2] ),                   0 },
+	{ PSF( fd.forcePowersKnown ),            32 },
+	{ PSF( fd.forcePowerLevel[1] ),           2 }, // FP_LEVITATION
+	{ PSF( fd.forcePowerDebounce[1] ),       32 }, // FP_LEVITATION
+	{ PSF( fd.forcePowerSelected ),           8 },
+	{ PSF( torsoFlip ),                       1 },
+	{ PSF( externalEvent ),                  10 },
+	{ PSF( damageYaw ),                       8 },
+	{ PSF( damageCount ),                     8 },
+	{ PSF( inAirAnim ),                       1 },
+	{ PSF( eventParms[1] ),                   8 },
+	{ PSF( fd.forceSide ),                    2 },
+	{ PSF( saberAttackChainCount ),           4 },
+	{ PSF( pm_type ),                         8 },
+	{ PSF( externalEventParm ),               8 },
+	{ PSF( eventParms[0] ),                 -16 },
+	{ PSF( lookTarget ),                     10 },
+	{ PSF( weaponChargeSubtractTime ),       32 },
+	{ PSF( weaponChargeTime ),               32 },
+	{ PSF( legsFlip ),                        1 },
+	{ PSF( damageEvent ),                     8 },
+	{ PSF( rocketTargetTime ),               32 }, // should probably send as float instead? convert for now
+	{ PSF( activeForcePass ),                 6 },
+	{ PSF( electrifyTime ),                  32 },
+	{ PSF( fd.forceJumpZStart ),              0 },
+	{ PSF( loopSound ),                      16 },
+	{ PSF( hasLookTarget ),                   1 },
+	{ PSF( saberBlocked ),                    8 },
+	{ PSF( damageType ),                      2 },
+	{ PSF( rocketLockTime ),                 32 },
+	{ PSF( forceHandExtend ),                 8 },
+	{ PSF( saberHolstered ),                  2 },
+	{ PSF( fd.forcePowersActive ),           32 },
+	{ PSF( damagePitch ),                     8 },
+	{ PSF( m_iVehicleNum ),     GENTITYNUM_BITS },
+	{ PSF( generic1 ),                        8 },
+	{ PSF( jumppad_ent ),       GENTITYNUM_BITS },
+	{ PSF( hasDetPackPlanted ),               1 },
+	{ PSF( saberInFlight ),                   1 },
+	{ PSF( forceDodgeAnim ),                 16 },
+	{ PSF( zoomMode ),                        2 },
+	{ PSF( hackingTime ),                    32 },
+	{ PSF( zoomTime ),                       32 },
+	{ PSF( brokenLimbs ),                     8 },
+	{ PSF( zoomLocked ),                      1 },
+	{ PSF( zoomFov ),                         0 },
+	{ PSF( fd.forceRageRecoveryTime ),       32 },
+	{ PSF( fallingToDeath ),                 32 },
+	{ PSF( fd.forceMindtrickTargetIndex ),   16 },
+	{ PSF( fd.forceMindtrickTargetIndex2 ),  16 },
+	{ PSF( lastHitLoc[2] ),                   0 },
+	{ PSF( fd.forceMindtrickTargetIndex3 ),  16 },
+	{ PSF( lastHitLoc[0] ),                   0 },
+	{ PSF( eFlags2 ),                        10 },
+	{ PSF( fd.forceMindtrickTargetIndex4 ),  16 },
+	{ PSF( lastHitLoc[1] ),                   0 },
+	{ PSF( fd.sentryDeployed ),               1 },
+	{ PSF( saberLockTime ),                  32 },
+	{ PSF( saberLockFrame ),                 16 },
+	{ PSF( fd.forcePowerLevel[14] ),          2 }, // FP_SEE
+	{ PSF( saberLockEnemy ),    GENTITYNUM_BITS },
+	{ PSF( fd.forceGripCripple ),             1 },
+	{ PSF( emplacedIndex ),     GENTITYNUM_BITS },
+	{ PSF( holocronBits ),                   32 },
+	{ PSF( isJediMaster ),                    1 },
+	{ PSF( forceRestricted ),                 1 },
+	{ PSF( trueJedi ),                        1 },
+	{ PSF( trueNonJedi ),                     1 },
+	{ PSF( duelTime ),                       32 },
+	{ PSF( duelInProgress ),                  1 },
+	{ PSF( saberLockAdvance ),                1 },
+	{ PSF( heldByClient ),                    6 },
+	{ PSF( ragAttach ),         GENTITYNUM_BITS },
+	{ PSF( iModelScale ),                    10 },
+	{ PSF( hackingBaseTime ),                16 },
+	{ PSF( userInt1 ),                        1 },
+	{ PSF( userInt2 ),                        1 },
+	{ PSF( userInt3 ),                        1 },
+	{ PSF( userFloat1 ),                      1 },
+	{ PSF( userFloat2 ),                      1 },
+	{ PSF( userFloat3 ),                      1 },
+	{ PSF( userVec1[0] ),                     1 },
+	{ PSF( userVec1[1] ),                     1 },
+	{ PSF( userVec1[2] ),                     1 },
+	{ PSF( userVec2[0] ),                     1 },
+	{ PSF( userVec2[1] ),                     1 },
+	{ PSF( userVec2[2] ),                     1 },
 };
+
+/* Vehicle PlayerState */
+netField_t vehicleStateFields [] =
+{	
+	{ PSF( commandTime ),                   32  },
+	{ PSF( origin[1] ),                      0  },
+	{ PSF( origin[0] ),                      0  },
+	{ PSF( viewangles[1] ),                  0  },
+	{ PSF( viewangles[0] ),                  0  },
+	{ PSF( origin[2] ),                      0  },
+	{ PSF( velocity[0] ),                    0  },
+	{ PSF( velocity[1] ),                    0  },
+	{ PSF( velocity[2] ),                    0  },
+	{ PSF( weaponTime ),                   -16  },
+	{ PSF( delta_angles[1] ),               16  },
+	{ PSF( speed ),                          0  },
+	{ PSF( legsAnim ),                      16  },
+	{ PSF( delta_angles[0] ),               16  },
+	{ PSF( groundEntityNum ),  GENTITYNUM_BITS  },
+	{ PSF( eFlags ),                        32  },
+	{ PSF( eventSequence ),                 16  },
+	{ PSF( legsTimer ),                     16  },
+	{ PSF( rocketLockIndex ),  GENTITYNUM_BITS  },
+	{ PSF( events[0] ),                     10  },
+	{ PSF( events[1] ),                     10  },
+	{ PSF( weaponstate ),                    4  },
+	{ PSF( pm_flags ),                      16  },
+	{ PSF( pm_time ),                      -16  },
+	{ PSF( clientNum ),        GENTITYNUM_BITS  },
+	{ PSF( gravity ),                       16  },
+	{ PSF( weapon ),                         8  },
+	{ PSF( delta_angles[2] ),               16  },
+	{ PSF( viewangles[2] ),                  0  },
+	{ PSF( externalEvent ),                 10  },
+	{ PSF( eventParms[1] ),                  8  },
+	{ PSF( pm_type ),                        8  },
+	{ PSF( externalEventParm ),              8  },
+	{ PSF( eventParms[0] ),                -16  },
+	{ PSF( vehOrientation[0] ),              0  },
+	{ PSF( vehOrientation[1] ),              0  },
+	{ PSF( moveDir[1] ),                     0  },
+	{ PSF( moveDir[0] ),                     0  },
+	{ PSF( vehOrientation[2] ),              0  },
+	{ PSF( moveDir[2] ),                     0  },
+	{ PSF( rocketTargetTime ),              32  },
+	{ PSF( electrifyTime ),                 32  },
+	{ PSF( loopSound ),                     16  },
+	{ PSF( rocketLockTime ),                32  },
+	{ PSF( m_iVehicleNum ),    GENTITYNUM_BITS  },
+	{ PSF( vehTurnaroundTime ),             32  },
+	{ PSF( hackingTime ),                   32  },
+	{ PSF( brokenLimbs ),                    8  },
+	{ PSF( vehWeaponsLinked ),               1  },
+	{ PSF( hyperSpaceTime ),                32  },
+	{ PSF( eFlags2 ),                       10  },
+	{ PSF( hyperSpaceAngles[1] ),            0  },
+	{ PSF( vehBoarding ),                    1  },
+	{ PSF( vehTurnaroundIndex ),            10  },
+	{ PSF( vehSurfaces ),                   16  },
+	{ PSF( hyperSpaceAngles[0] ),            0  },
+	{ PSF( hyperSpaceAngles[2] ),            0  },
+	{ PSF( userInt1 ),                       1  },
+	{ PSF( userInt2 ),                       1  },
+	{ PSF( userInt3 ),                       1  },
+	{ PSF( userFloat1 ),                     1  },
+	{ PSF( userFloat2 ),                     1  },
+	{ PSF( userFloat3 ),                     1  },
+	{ PSF( userVec1[0] ),                    1  },
+	{ PSF( userVec1[1] ),                    1  },
+	{ PSF( userVec1[2] ),                    1  },
+	{ PSF( userVec2[0] ),                    1  },
+	{ PSF( userVec2[1] ),                    1  },
+	{ PSF( userVec2[2] ),                    1  },
+};
+
+/* Pilot PlayerState */
+netField_t pilotStateFields [] =
+{
+	{ PSF( commandTime ),                              32  },
+	{ PSF( origin[1] ),                                 0  },
+	{ PSF( origin[0] ),                                 0  },
+	{ PSF( viewangles[1] ),                             0  },
+	{ PSF( viewangles[0] ),                             0  },
+	{ PSF( origin[2] ),                                 0  },
+	{ PSF( weaponTime ),                              -16  },
+	{ PSF( delta_angles[1] ),                          16  },
+	{ PSF( delta_angles[0] ),                          16  },
+	{ PSF( eFlags ),                                   32  },
+	{ PSF( eventSequence ),                            16  },
+	{ PSF( rocketLockIndex ),             GENTITYNUM_BITS  },
+	{ PSF( events[0] ),                                10  },
+	{ PSF( events[1] ),                                10  },
+	{ PSF( weaponstate ),                               4  },
+	{ PSF( pm_flags ),                                 16  },
+	{ PSF( pm_time ),                                 -16  },
+	{ PSF( clientNum ),                   GENTITYNUM_BITS  },
+	{ PSF( weapon ),                                    8  },
+	{ PSF( delta_angles[2] ),                          16  },
+	{ PSF( viewangles[2] ),                             0  },
+	{ PSF( externalEvent ),                            10  },
+	{ PSF( eventParms[1] ),                             8  },
+	{ PSF( pm_type ),                                   8  },
+	{ PSF( externalEventParm ),                         8  },
+	{ PSF( eventParms[0] ),                           -16  },
+	{ PSF( weaponChargeSubtractTime ),                 32  },
+	{ PSF( weaponChargeTime ),                         32  },
+	{ PSF( rocketTargetTime ),                         32  },
+	{ PSF( fd.forceJumpZStart ),                        0  },
+	{ PSF( rocketLockTime ),                           32  },
+	{ PSF( m_iVehicleNum ),               GENTITYNUM_BITS  },
+	{ PSF( generic1 ),                                  8  },
+	{ PSF( eFlags2 ),                                  10  },
+	{ PSF( legsAnim ),                                 16  },
+	{ PSF( torsoAnim ),                                16  },
+	{ PSF( torsoTimer ),                               16  },
+	{ PSF( legsTimer ),                                16  },
+	{ PSF( jetpackFuel ),                               8  },
+	{ PSF( cloakFuel ),                                 8  },
+	{ PSF( saberCanThrow ),                             1  },
+	{ PSF( fd.forcePowerDebounce[FP_LEVITATION] ),     32  },
+	{ PSF( torsoFlip ),                                 1  },
+	{ PSF( legsFlip ),                                  1  },
+	{ PSF( fd.forcePowersActive ),                     32  },
+	{ PSF( hasDetPackPlanted ),                         1  },
+	{ PSF( fd.forceRageRecoveryTime ),                 32  },
+	{ PSF( saberInFlight ),                             1  },
+	{ PSF( fd.forceMindtrickTargetIndex ),             16  },
+	{ PSF( fd.forceMindtrickTargetIndex2 ),            16  },
+	{ PSF( fd.forceMindtrickTargetIndex3 ),            16  },
+	{ PSF( fd.forceMindtrickTargetIndex4 ),            16  },
+	{ PSF( fd.sentryDeployed ),                         1  },
+	{ PSF( fd.forcePowerLevel[FP_SEE] ),                2  },
+	{ PSF( holocronBits ),                             32  },
+	{ PSF( fd.forcePower ),                             8  },
+	{ PSF( velocity[0] ),                               0  },
+	{ PSF( velocity[1] ),                               0  },
+	{ PSF( velocity[2] ),                               0  },
+	{ PSF( bobCycle ),                                  8  },
+	{ PSF( speed ),                                     0  },
+	{ PSF( groundEntityNum ),             GENTITYNUM_BITS  },
+	{ PSF( viewheight ),                               -8  },
+	{ PSF( fd.saberAnimLevel ),                         4  },
+	{ PSF( fd.saberDrawAnimLevel ),                     4  },
+	{ PSF( genericEnemyIndex ),                        32  },
+	{ PSF( customRGBA[0] ),                             8  },
+	{ PSF( movementDir ),                               4  },
+	{ PSF( saberEntityNum ),              GENTITYNUM_BITS  },
+	{ PSF( customRGBA[3] ),                             8  },
+	{ PSF( saberMove ),                                32  },
+	{ PSF( standheight ),                              10  },
+	{ PSF( crouchheight ),                             10  },
+	{ PSF( basespeed ),                               -16  },
+	{ PSF( customRGBA[1] ),                             8  },
+	{ PSF( duelIndex ),                   GENTITYNUM_BITS  },
+	{ PSF( customRGBA[2] ),                             8  },
+	{ PSF( gravity ),                                  16  },
+	{ PSF( fd.forcePowersKnown ),                      32  },
+	{ PSF( fd.forcePowerLevel[FP_LEVITATION] ),         2  },
+	{ PSF( fd.forcePowerSelected ),                     8  },
+	{ PSF( damageYaw ),                                 8  },
+	{ PSF( damageCount ),                               8  },
+	{ PSF( inAirAnim ),                                 1  },
+	{ PSF( fd.forceSide ),                              2  },
+	{ PSF( saberAttackChainCount ),                     4  },
+	{ PSF( lookTarget ),                               10  },
+	{ PSF( moveDir[1] ),                                0  },
+	{ PSF( moveDir[0] ),                                0  },
+	{ PSF( damageEvent ),                               8  },
+	{ PSF( moveDir[2] ),                                0  },
+	{ PSF( activeForcePass ),                           6  },
+	{ PSF( electrifyTime ),                            32  },
+	{ PSF( damageType ),                                2  },
+	{ PSF( loopSound ),                                16  },
+	{ PSF( hasLookTarget ),                             1  },
+	{ PSF( saberBlocked ),                              8  },
+	{ PSF( forceHandExtend ),                           8  },
+	{ PSF( saberHolstered ),                            2  },
+	{ PSF( damagePitch ),                               8  },
+	{ PSF( jumppad_ent ),                 GENTITYNUM_BITS  },
+	{ PSF( forceDodgeAnim ),                           16  },
+	{ PSF( zoomMode ),                                  2  },
+	{ PSF( hackingTime ),                              32  },
+	{ PSF( zoomTime ),                                 32  },
+	{ PSF( brokenLimbs ),                               8  },
+	{ PSF( zoomLocked ),                                1  },
+	{ PSF( zoomFov ),                                   0  },
+	{ PSF( fallingToDeath ),                           32  },
+	{ PSF( lastHitLoc[2] ),                             0  },
+	{ PSF( lastHitLoc[0] ),                             0  },
+	{ PSF( lastHitLoc[1] ),                             0  },
+	{ PSF( saberLockTime ),                            32  },
+	{ PSF( saberLockFrame ),                           16  },
+	{ PSF( saberLockEnemy ),              GENTITYNUM_BITS  },
+	{ PSF( fd.forceGripCripple ),                       1  },
+	{ PSF( emplacedIndex ),               GENTITYNUM_BITS  },
+	{ PSF( isJediMaster ),                              1  },
+	{ PSF( forceRestricted ),                           1  },
+	{ PSF( trueJedi ),                                  1  },
+	{ PSF( trueNonJedi ),                               1  },
+	{ PSF( duelTime ),                                 32  },
+	{ PSF( duelInProgress ),                            1  },
+	{ PSF( saberLockAdvance ),                          1  },
+	{ PSF( heldByClient ),                              6  },
+	{ PSF( ragAttach ),                   GENTITYNUM_BITS  },
+	{ PSF( iModelScale ),                              10  },
+	{ PSF( hackingBaseTime ),                          16  },
+	{ PSF( userInt1 ),                                  1  },
+	{ PSF( userInt2 ),                                  1  },
+	{ PSF( userInt3 ),                                  1  },
+	{ PSF( userFloat1 ),                                1  },
+	{ PSF( userFloat2 ),                                1  },
+	{ PSF( userFloat3 ),                                1  },
+	{ PSF( userVec1[0] ),                               1  },
+	{ PSF( userVec1[1] ),                               1  },
+	{ PSF( userVec1[2] ),                               1  },
+	{ PSF( userVec2[0] ),                               1  },
+	{ PSF( userVec2[1] ),                               1  },
+	{ PSF( userVec2[2] ),                               1  },
+};
+
+#define PSF_OVERRIDES "ext_data/Mp/psf_overrides.txt"
+void MSG_LoadPlayerstateOverrides( void ) {
+#if 0
+	union {
+		char	*c;
+		void	*v;
+	} f;
+	char *text_p, *token;
+	int len;
+
+	len = FS_ReadFile( PSF_OVERRIDES, &f.v );
+
+	if( len <= 0 || !f.c ) {
+		Com_Printf( S_COLOR_RED "ERROR: Couldn't load playerstate netfield overrides from \"%s\"\n", PSF_OVERRIDES );
+		return;
+	}
+
+	text_p = f.c;
+#endif
+}
 
 /*
 =============
@@ -1151,7 +1596,7 @@ MSG_WriteDeltaPlayerstate
 
 =============
 */
-void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct playerState_s *to ) {
+void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct playerState_s *to, qboolean isVehiclePS ) {
 	int				i;
 	playerState_t	dummy;
 	int				statsbits;
@@ -1159,6 +1604,7 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 	int				ammobits;
 	int				powerupbits;
 	int				numFields;
+	netField_t		*selectedField;
 	netField_t		*field;
 	int				*fromF, *toF;
 	float			fullFloat;
@@ -1169,10 +1615,25 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 		Com_Memset (&dummy, 0, sizeof(dummy));
 	}
 
-	numFields = ARRAY_LEN( playerStateFields );
+	if ( isVehiclePS ) {
+		selectedField = vehicleStateFields;
+		numFields = ARRAY_LEN( vehicleStateFields );
+	} else if ( to->m_iVehicleNum && (to->eFlags & 1) ) {
+		selectedField = pilotStateFields;
+
+		// While this should actually be ARRAY_LEN( pilotStateFields ), the JA code defines this as 58 instead.
+		numFields = 58; //ARRAY_LEN( pilotStateFields );
+
+		MSG_WriteBits(msg, 1, 1);
+	} else {
+		selectedField = playerStateFields;
+		numFields = ARRAY_LEN( playerStateFields );
+		
+		MSG_WriteBits(msg, 0, 1);
+	}
 
 	lc = 0;
-	for ( i = 0, field = playerStateFields ; i < numFields ; i++, field++ ) {
+	for ( i = 0, field = selectedField ; i < numFields ; i++, field++ ) {
 		fromF = (int *)( (byte *)from + field->offset );
 		toF = (int *)( (byte *)to + field->offset );
 		if ( *fromF != *toF ) {
@@ -1184,7 +1645,7 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 
 	oldsize += numFields - lc;
 
-	for ( i = 0, field = playerStateFields ; i < lc ; i++, field++ ) {
+	for ( i = 0, field = selectedField ; i < lc ; i++, field++ ) {
 		fromF = (int *)( (byte *)from + field->offset );
 		toF = (int *)( (byte *)to + field->offset );
 
@@ -1234,7 +1695,7 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 		}
 	}
 	ammobits = 0;
-	for (i=0 ; i<MAX_WEAPONS ; i++) {
+	for (i=0 ; i<16 ; i++) {					// Only transfer 16 bits
 		if (to->ammo[i] != from->ammo[i]) {
 			ammobits |= 1<<i;
 		}
@@ -1256,9 +1717,14 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 	if ( statsbits ) {
 		MSG_WriteBits( msg, 1, 1 );	// changed
 		MSG_WriteBits( msg, statsbits, MAX_STATS );
-		for (i=0 ; i<MAX_STATS ; i++)
-			if (statsbits & (1<<i) )
-				MSG_WriteShort (msg, to->stats[i]);
+		for (i=0 ; i<MAX_STATS ; i++) {
+			if (statsbits & (1<<i) ) {
+				if( i == 4 ) // STAT_WEAPONS = 4 (32 bits)
+					MSG_WriteBits(msg, to->stats[i], MAX_WEAPONS);		// Only send enough bits for MAX_WEAPONS.
+				else
+					MSG_WriteShort (msg, to->stats[i]);
+			}
+		}
 	} else {
 		MSG_WriteBits( msg, 0, 1 );	// no change
 	}
@@ -1277,8 +1743,8 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 
 	if ( ammobits ) {
 		MSG_WriteBits( msg, 1, 1 );	// changed
-		MSG_WriteBits( msg, ammobits, MAX_WEAPONS );
-		for (i=0 ; i<MAX_WEAPONS ; i++)
+		MSG_WriteBits( msg, ammobits, 16 );
+		for (i=0 ; i<16 ; i++)
 			if (ammobits & (1<<i) )
 				MSG_WriteShort (msg, to->ammo[i]);
 	} else {
@@ -1303,9 +1769,10 @@ void MSG_WriteDeltaPlayerstate( msg_t *msg, struct playerState_s *from, struct p
 MSG_ReadDeltaPlayerstate
 ===================
 */
-void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *to ) {
+void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *to, qboolean isVehiclePS ) {
 	int			i, lc;
 	int			bits;
+	netField_t  *selectedField;
 	netField_t	*field;
 	int			numFields;
 	int			startBit, endBit;
@@ -1335,14 +1802,26 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 		print = 0;
 	}
 
-	numFields = ARRAY_LEN( playerStateFields );
+	if ( isVehiclePS ) {
+		selectedField = vehicleStateFields;
+		numFields = ARRAY_LEN( vehicleStateFields );
+	} else if ( MSG_ReadBits(msg, 1) ) {
+		selectedField = pilotStateFields;
+
+		// While this should actually be ARRAY_LEN( pilotStateFields ), the JA code defines this as 58 instead.
+		numFields = 58; //ARRAY_LEN( pilotStateFields );
+	} else {
+		selectedField = playerStateFields;
+		numFields = ARRAY_LEN( playerStateFields );
+	}
+
 	lc = MSG_ReadByte(msg);
 
 	if ( lc > numFields || lc < 0 ) {
 		Com_Error( ERR_DROP, "invalid playerState field count" );
 	}
 
-	for ( i = 0, field = playerStateFields ; i < lc ; i++, field++ ) {
+	for ( i = 0, field = selectedField ; i < lc ; i++, field++ ) {
 		fromF = (int *)( (byte *)from + field->offset );
 		toF = (int *)( (byte *)to + field->offset );
 
@@ -1377,8 +1856,8 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 			}
 		}
 	}
-	for ( i=lc,field = &playerStateFields[lc];i<numFields; i++, field++) {
-		fromF = (int *)( (byte *)from + field->offset );
+	for ( i=lc,field = &selectedField[lc];i<numFields; i++, field++) {
+	fromF = (int *)( (byte *)from + field->offset );
 		toF = (int *)( (byte *)to + field->offset );
 		// no change
 		*toF = *fromF;
@@ -1393,7 +1872,10 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 			bits = MSG_ReadBits (msg, MAX_STATS);
 			for (i=0 ; i<MAX_STATS ; i++) {
 				if (bits & (1<<i) ) {
-					to->stats[i] = MSG_ReadShort(msg);
+					if( i == 4 ) // STAT_WEAPONS )
+						to->stats[i] = MSG_ReadBits(msg, MAX_WEAPONS); // For jampded compatability this needs to be 19
+					else
+						to->stats[i] = MSG_ReadShort(msg);
 				}
 			}
 		}
@@ -1409,11 +1891,12 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 			}
 		}
 
+		// Ammo only transfers 16 bits, even though the array is the same size as MAX_WEAPONS
 		// parse ammo
 		if ( MSG_ReadBits( msg, 1 ) ) {
 			LOG("PS_AMMO");
-			bits = MSG_ReadBits (msg, MAX_WEAPONS);
-			for (i=0 ; i<MAX_WEAPONS ; i++) {
+			bits = MSG_ReadBits (msg, 16);
+			for (i=0 ; i<16 ; i++) {
 				if (bits & (1<<i) ) {
 					to->ammo[i] = MSG_ReadShort(msg);
 				}

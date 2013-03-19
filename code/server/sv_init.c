@@ -376,17 +376,20 @@ static void SV_ClearServer(void) {
 ================
 SV_TouchCGame
 
-  touch the cgame.vm so that a pure client can load it if it's in a seperate pk3
+  touch the cgamex86.dll so that a pure client can load it if it's in a seperate pk3
 ================
 */
 static void SV_TouchCGame(void) {
 	fileHandle_t	f;
 	char filename[MAX_QPATH];
 
-	Com_sprintf( filename, sizeof(filename), "vm/%s.qvm", "cgame" );
+	Com_sprintf( filename, sizeof(filename), "cgamex86.dll" );
 	FS_FOpenFileRead( filename, &f, qfalse );
 	if ( f ) {
 		FS_FCloseFile( f );
+	}
+	else if ( sv_pure->integer ) {
+		Com_Error( ERR_DROP, "Failed to locate cgame DLL for pure server mode" );
 	}
 }
 
@@ -399,12 +402,18 @@ clients along with it.
 This is NOT called for map_restart
 ================
 */
+void SV_MapChange( void );
 void SV_SpawnServer( char *server, qboolean killBots ) {
 	int			i;
 	int			checksum;
 	qboolean	isBot;
 	char		systemInfo[16384];
 	const char	*p;
+	
+	/* Fixme: Not base client compatible */
+	if ( svs.clients && !com_errorEntered ) {
+		SV_MapChange( );
+	}
 
 	// shut down the existing game if it is running
 	SV_ShutdownGameProgs();
@@ -429,6 +438,15 @@ void SV_SpawnServer( char *server, qboolean killBots ) {
 
 	// clear collision map data
 	CM_ClearMap();
+
+	// clear siege data if the map really is just starting or changed because we don't want to clash across maps
+	if(svs.siege)
+	{
+		Z_Free(svs.siege);
+	}
+
+	svs.siege = Z_Malloc (sizeof(siegePers_t) );
+
 
 	// init client structures and svs.numSnapshotEntities 
 	if ( !Cvar_VariableValue("sv_running") ) {
@@ -578,17 +596,15 @@ void SV_SpawnServer( char *server, qboolean killBots ) {
 		}
 		p = FS_LoadedPakNames();
 		Cvar_Set( "sv_pakNames", p );
-
-		// if a dedicated pure server we need to touch the cgame because it could be in a
-		// seperate pk3 file and the client will need to load the latest cgame.qvm
-		if ( com_dedicated->integer ) {
-			SV_TouchCGame();
-		}
 	}
 	else {
 		Cvar_Set( "sv_paks", "" );
 		Cvar_Set( "sv_pakNames", "" );
 	}
+
+	// we want the server to reference the assets3 pk3 that the client is expected to load from
+	SV_TouchCGame();
+
 	// the server sends these to the clients so they can figure
 	// out which pk3s should be auto-downloaded
 	p = FS_ReferencedPakChecksums();
@@ -633,12 +649,13 @@ void SV_Init (void)
 	// serverinfo vars
 	Cvar_Get ("dmflags", "0", CVAR_SERVERINFO);
 	Cvar_Get ("fraglimit", "20", CVAR_SERVERINFO);
+	Cvar_Get ("duel_fraglimit", "10", CVAR_SERVERINFO);
 	Cvar_Get ("timelimit", "0", CVAR_SERVERINFO);
 	sv_gametype = Cvar_Get ("g_gametype", "0", CVAR_SERVERINFO | CVAR_LATCH );
 	Cvar_Get ("sv_keywords", "", CVAR_SERVERINFO);
 	sv_mapname = Cvar_Get ("mapname", "nomap", CVAR_SERVERINFO | CVAR_ROM);
 	sv_privateClients = Cvar_Get ("sv_privateClients", "0", CVAR_SERVERINFO);
-	sv_hostname = Cvar_Get ("sv_hostname", "noname", CVAR_SERVERINFO | CVAR_ARCHIVE );
+	sv_hostname = Cvar_Get ("sv_hostname", "*Jedi*", CVAR_SERVERINFO | CVAR_ARCHIVE );
 	sv_maxclients = Cvar_Get ("sv_maxclients", "8", CVAR_SERVERINFO | CVAR_LATCH);
 
 	sv_minRate = Cvar_Get ("sv_minRate", "0", CVAR_ARCHIVE | CVAR_SERVERINFO );
@@ -649,6 +666,7 @@ void SV_Init (void)
 	sv_floodProtect = Cvar_Get ("sv_floodProtect", "1", CVAR_ARCHIVE | CVAR_SERVERINFO );
 
 	// systeminfo
+	sv_cheats = Cvar_Get ("sv_cheats", "1", CVAR_SYSTEMINFO | CVAR_ROM );
 	Cvar_Get ("sv_cheats", "1", CVAR_SYSTEMINFO | CVAR_ROM );
 	sv_serverid = Cvar_Get ("sv_serverid", "0", CVAR_SYSTEMINFO | CVAR_ROM );
 	sv_pure = Cvar_Get ("sv_pure", "1", CVAR_SYSTEMINFO );
@@ -673,8 +691,9 @@ void SV_Init (void)
 	Cvar_Get ("sv_dlURL", "", CVAR_SERVERINFO | CVAR_ARCHIVE);
 	
 	sv_master[0] = Cvar_Get("sv_master1", MASTER_SERVER_NAME, 0);
-	sv_master[1] = Cvar_Get("sv_master2", "master.ioquake3.org", 0);
-	for(index = 2; index < MAX_MASTER_SERVERS; index++)
+	sv_master[1] = Cvar_Get("sv_master2", JKHUB_MASTER_SERVER_NAME, 0);
+	sv_master[2] = Cvar_Get("sv_master3", IOQ3_MASTER_SERVER_NAME, 0);
+	for(index = 3; index < MAX_MASTER_SERVERS; index++)
 		sv_master[index] = Cvar_Get(va("sv_master%d", index + 1), "", CVAR_ARCHIVE);
 
 	sv_reconnectlimit = Cvar_Get ("sv_reconnectlimit", "3", 0);
@@ -683,9 +702,6 @@ void SV_Init (void)
 	sv_killserver = Cvar_Get ("sv_killserver", "0", 0);
 	sv_mapChecksum = Cvar_Get ("sv_mapChecksum", "", CVAR_ROM);
 	sv_lanForceRate = Cvar_Get ("sv_lanForceRate", "1", CVAR_ARCHIVE );
-#ifndef STANDALONE
-	sv_strictAuth = Cvar_Get ("sv_strictAuth", "1", CVAR_ARCHIVE );
-#endif
 	sv_banFile = Cvar_Get("sv_banFile", "serverbans.dat", CVAR_ARCHIVE);
 
 	// initialize bot cvars so they are listed and can be set before loading the botlib
@@ -730,6 +746,37 @@ void SV_FinalMessage( char *message ) {
 	}
 }
 
+/*
+==================
+SV_MapChange
+
+Used by SV_SpawnServer to send a final message to all
+connected clients before the server changes maps.  The messages are sent immediately,
+not just stuck on the outgoing message list.
+FIXME: Not base client compatible
+Assumes svs.clients is valid and not com_errorEntered.
+==================
+*/
+void SV_MapChange( void ) {
+	int			i, j;
+	client_t	*cl;
+	
+	// send it 4 times, ignoring rate
+	for ( j = 0 ; j < 4 ; j++ ) {
+		for (i=0, cl = svs.clients ; i < sv_maxclients->integer ; i++, cl++) {
+			if (cl->state >= CS_CONNECTED) {
+				// don't send a mapchange to a local client
+				if ( cl->netchan.remoteAddress.type != NA_LOOPBACK ) {
+					SV_SendServerCommand( cl, "mapchange\n" );
+				}
+				// force a snapshot to be sent
+				cl->lastSnapshotTime = 0;
+				SV_SendClientSnapshot( cl );
+			}
+		}
+	}
+}
+
 
 /*
 ================
@@ -758,6 +805,12 @@ void SV_Shutdown( char *finalmsg ) {
 
 	// free current level
 	SV_ClearServer();
+
+	// free siege static data since this is cross level or shutdown, not map restart
+	if(svs.siege)
+	{
+		Z_Free(svs.siege);
+	}
 
 	// free server static data
 	if(svs.clients)

@@ -49,6 +49,7 @@ typedef struct {
 	qhandle_t (*RegisterSkin)( const char *name );
 	qhandle_t (*RegisterShader)( const char *name );
 	qhandle_t (*RegisterShaderNoMip)( const char *name );
+	void	(*ShaderNameFromIndex)( char *name, qhandle_t hShader );
 	void	(*LoadWorld)( const char *name );
 
 	// the vis data is a large enough block of data that we go to the trouble
@@ -72,6 +73,9 @@ typedef struct {
 	void	(*SetColor)( const float *rgba );	// NULL = 1,1,1,1
 	void	(*DrawStretchPic) ( float x, float y, float w, float h, 
 		float s1, float t1, float s2, float t2, qhandle_t hShader );	// 0 = white
+	
+	void	(*DrawRotatedPic) ( float x, float y, float w, float h, 
+		float s1, float t1, float s2, float t2, float a, qboolean centered, qhandle_t hShader );	// 0 = white
 
 	// Draw images for cinematic rendering, pass as 32 bit rgba
 	void	(*DrawStretchRaw) (int x, int y, int w, int h, int cols, int rows, const byte *data, int client, qboolean dirty);
@@ -93,10 +97,30 @@ typedef struct {
 #ifdef __USEA3D
 	void    (*A3D_RenderGeometry) (void *pVoidA3D, void *pVoidGeom, void *pVoidMat, void *pVoidGeomStatus);
 #endif
-	void	(*RegisterFont)(const char *fontName, int pointSize, fontInfo_t *font);
+	qhandle_t (*RegisterFont)(const char *fontName);
+	int		(*Font_StrLenPixels)(const char *text, const int iFontIndex, const float scale);
+	int		(*Font_StrLenChars)(const char *text);
+	int		(*Font_HeightPixels)(const int iFontIndex, const float scale);
+	void	(*Font_DrawString)(int ox, int oy, const char *text, const float *rgba, const int setIndex, int iCharLimit, const float scale);
 	void	(*RemapShader)(const char *oldShader, const char *newShader, const char *offsetTime);
 	qboolean (*GetEntityToken)( char *buffer, int size );
+	void	(*GetDistanceCull)( float *value );
 	qboolean (*inPVS)( const vec3_t p1, const vec3_t p2 );
+
+//	void	(*GetLightStyle)( int style, color4ub_t color );
+//	void	(*SetLightStyle)( int style, int color );
+
+	qboolean (*Ghoul2Valid)(void *ghoul2);
+	void	(*GetGLAName)(void *ghoul2, int modelIndex, char *fillBuf);
+	int		(*InitG2Model)(void **ghoul2Ptr, const char *fileName, int modelIndex, qhandle_t customSkin,
+						  qhandle_t customShader, int modelFlags, int lodBias);
+
+	void	(*CleanGhoul2)(void **ghoul2Ptr);
+
+	int		(*CopyGhoul2)(void *from, void *to, int modelIndex);
+	void	(*CopyGhoul2Specific)(void *from, int modelFrom, void *to, int modelTo);
+	void	(*DuplicateGhoul2)(void *from, void **to);
+	qboolean (*Ghoul2ModelOnIndex)(void *ghoul2, int modelIndex);
 
 	void (*TakeVideoFrame)( int h, int w, byte* captureBuffer, byte *encodeBuffer, qboolean motionJpeg );
 } refexport_t;
@@ -124,6 +148,7 @@ typedef struct {
 #endif
 	void	*(*Hunk_AllocateTempMemory)( int size );
 	void	(*Hunk_FreeTempMemory)( void *block );
+	int		(*Hunk_MemoryRemaining)( void );
 
 	// dynamic memory allocator for things that need to be freed
 	void	*(*Malloc)( int bytes );

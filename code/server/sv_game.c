@@ -299,6 +299,10 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return 0;
 	case G_MILLISECONDS:
 		return Sys_Milliseconds();
+	case G_PRECISIONTIMER_START:
+		return 0;
+	case G_PRECISIONTIMER_END:
+		return 0;
 	case G_CVAR_REGISTER:
 		Cvar_Register( VMA(1), VMA(2), VMA(3), args[4] ); 
 		return 0;
@@ -335,8 +339,8 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return 0;
 	case G_FS_GETFILELIST:
 		return FS_GetFileList( VMA(1), VMA(2), VMA(3), args[4] );
-	case G_FS_SEEK:
-		return FS_Seek( args[1], args[2], args[3] );
+	//case G_FS_SEEK:
+	//	return FS_Seek( args[1], args[2], args[3] );
 
 	case G_LOCATE_GAME_DATA:
 		SV_LocateGameData( VMA(1), args[2], args[3], VMA(4), args[5] );
@@ -360,6 +364,9 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case G_ENTITY_CONTACTCAPSULE:
 		return SV_EntityContact( VMA(1), VMA(2), VMA(3), /*int capsule*/ qtrue );
 	case G_TRACE:
+		SV_Trace( VMA(1), VMA(2), VMA(3), VMA(4), VMA(5), args[6], args[7], /*int capsule*/ qfalse );
+		return 0;
+	case G_G2TRACE:
 		SV_Trace( VMA(1), VMA(2), VMA(3), VMA(4), VMA(5), args[6], args[7], /*int capsule*/ qfalse );
 		return 0;
 	case G_TRACECAPSULE:
@@ -417,6 +424,16 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 				return qtrue;
 			}
 		}
+
+	// store pointer into the engine
+	case G_SIEGEPERSSET:
+		Com_Memcpy(svs.siege, VMA(1), sizeof(siegePers_t));
+		return 0;
+
+	// retrieve pointer from the engine
+	case G_SIEGEPERSGET:
+		Com_Memcpy(VMA(1), svs.siege, sizeof(siegePers_t));
+		return 0;
 
 	case G_DEBUG_POLYGON_CREATE:
 		return BotImport_DebugPolygonCreate( args[1], args[2], VMA(3) );
@@ -543,6 +560,12 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return 0;
 	case BOTLIB_EA_ATTACK:
 		botlib_export->ea.EA_Attack( args[1] );
+		return 0;
+	case BOTLIB_EA_ALT_ATTACK:
+		botlib_export->ea.EA_Alt_Attack( args[1] );
+		return 0;
+	case BOTLIB_EA_FORCEPOWER:
+		botlib_export->ea.EA_ForcePower( args[1] );
 		return 0;
 	case BOTLIB_EA_USE:
 		botlib_export->ea.EA_Use( args[1] );
@@ -836,9 +859,25 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case TRAP_CEIL:
 		return FloatAsInt( ceil( VMF(1) ) );
 
+	case SP_GETSTRINGTEXTSTRING:
+		// We don't need to even bother supporting this because we just send to the client with @@@ in print
+		return 0;
+
+	case G_G2_GETGLANAME:
+		strcpy(VMA(3), "models/players/_humanoid/_humanoid");
+		return 0;
+
+	case G_ICARUS_VALIDENT:
+		//qboolean trap_ICARUS_ValidEnt( gentity_t *ent )
+		return qtrue;
+
+	case G_ICARUS_ISINITIALIZED:
+		//qboolean trap_ICARUS_IsInitialized( int entID )
+		return qtrue;
 
 	default:
-		Com_Error( ERR_DROP, "Bad game system trap: %ld", (long int) args[0] );
+		return 0;
+		//Com_Error( ERR_DROP, "Bad game system trap: %ld", (long int) args[0] );
 	}
 	return 0;
 }
@@ -931,7 +970,7 @@ void SV_InitGameProgs( void ) {
 	}
 
 	// load the dll or bytecode
-	gvm = VM_Create( "qagame", SV_GameSystemCalls, Cvar_VariableValue( "vm_game" ) );
+	gvm = VM_Create( "jampgame", SV_GameSystemCalls, VMI_NATIVE );
 	if ( !gvm ) {
 		Com_Error( ERR_FATAL, "VM_Create on game failed" );
 	}

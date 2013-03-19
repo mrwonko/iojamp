@@ -101,7 +101,7 @@ static	void R_ColorShiftLightingBytes( byte in[4], byte out[4] ) {
 	int		shift, r, g, b;
 
 	// shift the color data based on overbright range
-	shift = r_mapOverBrightBits->integer - tr.overbrightBits;
+	shift = 0 - tr.overbrightBits;
 
 	// shift the data based on overbright range
 	r = in[0] << shift;
@@ -125,6 +125,8 @@ static	void R_ColorShiftLightingBytes( byte in[4], byte out[4] ) {
 	out[3] = in[3];
 }
 
+void R_InitLightStyles( void );
+
 /*
 ===============
 R_LoadLightmaps
@@ -146,6 +148,8 @@ static	void R_LoadLightmaps( lump_t *l ) {
 	}
 	buf = fileBase + l->fileofs;
 
+	R_InitLightStyles();
+
 	// we are about to upload textures
 	R_IssuePendingRenderCommands();
 
@@ -158,7 +162,7 @@ static	void R_LoadLightmaps( lump_t *l ) {
 	}
 
 	// if we are in r_vertexLight mode, we don't need the lightmaps at all
-	if ( r_vertexLight->integer || glConfig.hardwareType == GLHW_PERMEDIA2 ) {
+	if ( r_vertexLight->integer || glConfig2.hardwareType == GLHW_PERMEDIA2 ) {
 		return;
 	}
 
@@ -279,7 +283,7 @@ static shader_t *ShaderForShaderNum( int shaderNum, int lightmapNum ) {
 	}
 	dsh = &s_worldData.shaders[ _shaderNum ];
 
-	if ( r_vertexLight->integer || glConfig.hardwareType == GLHW_PERMEDIA2 ) {
+	if ( r_vertexLight->integer || glConfig2.hardwareType == GLHW_PERMEDIA2 ) {
 		lightmapNum = LIGHTMAP_BY_VERTEX;
 	}
 
@@ -309,7 +313,7 @@ static void ParseFace( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, int 
 	int			lightmapNum;
 	int			sfaceSize, ofsIndexes;
 
-	lightmapNum = LittleLong( ds->lightmapNum );
+	lightmapNum = LittleLong( ds->lightmapNum[0] );
 
 	// get fog volume
 	surf->fogIndex = LittleLong( ds->fogNum ) + 1;
@@ -347,9 +351,9 @@ static void ParseFace( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, int 
 		}
 		for ( j = 0 ; j < 2 ; j++ ) {
 			cv->points[i][3+j] = LittleFloat( verts[i].st[j] );
-			cv->points[i][5+j] = LittleFloat( verts[i].lightmap[j] );
+			cv->points[i][5+j] = LittleFloat( verts[i].lightmap[0][j] );
 		}
-		R_ColorShiftLightingBytes( verts[i].color, (byte *)&cv->points[i][7] );
+		R_ColorShiftLightingBytes( verts[i].color[0], (byte *)&cv->points[i][7] );
 	}
 
 	indexes += LittleLong( ds->firstIndex );
@@ -376,7 +380,7 @@ ParseMesh
 */
 static void ParseMesh ( dsurface_t *ds, drawVert_t *verts, msurface_t *surf ) {
 	srfGridMesh_t	*grid;
-	int				i, j;
+	int				i, j, k;
 	int				width, height, numPoints;
 	drawVert_t points[MAX_PATCH_SIZE*MAX_PATCH_SIZE];
 	int				lightmapNum;
@@ -384,7 +388,7 @@ static void ParseMesh ( dsurface_t *ds, drawVert_t *verts, msurface_t *surf ) {
 	vec3_t			tmpVec;
 	static surfaceType_t	skipData = SF_SKIP;
 
-	lightmapNum = LittleLong( ds->lightmapNum );
+	lightmapNum = LittleLong( ds->lightmapNum[0] );
 
 	// get fog volume
 	surf->fogIndex = LittleLong( ds->fogNum ) + 1;
@@ -414,9 +418,14 @@ static void ParseMesh ( dsurface_t *ds, drawVert_t *verts, msurface_t *surf ) {
 		}
 		for ( j = 0 ; j < 2 ; j++ ) {
 			points[i].st[j] = LittleFloat( verts[i].st[j] );
-			points[i].lightmap[j] = LittleFloat( verts[i].lightmap[j] );
+			for( k = 0; k < MAXLIGHTMAPS; k++ ) {
+				points[i].lightmap[k][j] = LittleFloat( verts[i].lightmap[k][j] );
+			}
 		}
-		R_ColorShiftLightingBytes( verts[i].color, points[i].color );
+		for( k = 0; k < MAXLIGHTMAPS; k++ ) {
+			R_ColorShiftLightingBytes( verts[i].color[k], points[i].color[k] );
+		}
+
 	}
 
 	// pre-tesseleate
@@ -443,7 +452,7 @@ ParseTriSurf
 */
 static void ParseTriSurf( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, int *indexes ) {
 	srfTriangles_t	*tri;
-	int				i, j;
+	int				i, j, k;
 	int				numVerts, numIndexes;
 
 	// get fog volume
@@ -479,10 +488,14 @@ static void ParseTriSurf( dsurface_t *ds, drawVert_t *verts, msurface_t *surf, i
 		AddPointToBounds( tri->verts[i].xyz, tri->bounds[0], tri->bounds[1] );
 		for ( j = 0 ; j < 2 ; j++ ) {
 			tri->verts[i].st[j] = LittleFloat( verts[i].st[j] );
-			tri->verts[i].lightmap[j] = LittleFloat( verts[i].lightmap[j] );
+			for( k = 0; k < MAXLIGHTMAPS; k++ ) {
+				tri->verts[i].lightmap[k][j] = LittleFloat( verts[i].lightmap[k][j] );
+			}
 		}
 
-		R_ColorShiftLightingBytes( verts[i].color, tri->verts[i].color );
+		for( k = 0; k < MAXLIGHTMAPS; k++ ) {
+			R_ColorShiftLightingBytes( verts[i].color[k], tri->verts[i].color[k] );
+		}
 	}
 
 	// copy indexes
@@ -1381,6 +1394,10 @@ static	void R_LoadNodesAndLeafs (lump_t *nodeLump, lump_t *leafLump) {
 	s_worldData.nodes = out;
 	s_worldData.numnodes = numNodes + numLeafs;
 	s_worldData.numDecisionNodes = numNodes;
+	
+	// ydnar: skybox optimization
+	s_worldData.numSkyNodes = 0;
+	s_worldData.skyNodes = ri.Hunk_Alloc( WORLD_MAX_SKY_NODES * sizeof( *s_worldData.skyNodes ), h_low );
 
 	// load nodes
 	for ( i=0 ; i<numNodes; i++, in++, out++)
@@ -1532,7 +1549,7 @@ R_LoadFogs
 =================
 */
 static	void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump ) {
-	int			i;
+	int			i, j;
 	fog_t		*out;
 	dfog_t		*fogs;
 	dbrush_t 	*brushes, *brush;
@@ -1574,41 +1591,31 @@ static	void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump ) {
 	for ( i=0 ; i<count ; i++, fogs++) {
 		out->originalBrushNumber = LittleLong( fogs->brushNum );
 
-		if ( (unsigned)out->originalBrushNumber >= brushesCount ) {
-			ri.Error( ERR_DROP, "fog brushNumber out of range" );
+		// ydnar: global fog has a brush number of -1, and no visible side
+		if ( out->originalBrushNumber == -1 ) {
+			VectorSet( out->bounds[ 0 ], MIN_WORLD_COORD, MIN_WORLD_COORD, MIN_WORLD_COORD );
+			VectorSet( out->bounds[ 1 ], MAX_WORLD_COORD, MAX_WORLD_COORD, MAX_WORLD_COORD );
 		}
-		brush = brushes + out->originalBrushNumber;
+		else {
+			if ( (unsigned)out->originalBrushNumber >= brushesCount ) {
+				ri.Error( ERR_DROP, "fog brushNumber out of range" );
+			}
+			brush = brushes + out->originalBrushNumber;
 
-		firstSide = LittleLong( brush->firstSide );
+			firstSide = LittleLong( brush->firstSide );
 
 			if ( (unsigned)firstSide > sidesCount - 6 ) {
-			ri.Error( ERR_DROP, "fog brush sideNumber out of range" );
+				ri.Error( ERR_DROP, "fog brush sideNumber out of range" );
+			}
+
+			// brushes are always sorted with the axial sides first
+			for( j = 0; j < 6; ++j )
+			{
+				sideNum = firstSide + j;
+				planeNum = LittleLong( sides[ sideNum ].planeNum );
+				out->bounds[ j % 2][ j / 2 ] = -s_worldData.planes[ planeNum ].dist;
+			}
 		}
-
-		// brushes are always sorted with the axial sides first
-		sideNum = firstSide + 0;
-		planeNum = LittleLong( sides[ sideNum ].planeNum );
-		out->bounds[0][0] = -s_worldData.planes[ planeNum ].dist;
-
-		sideNum = firstSide + 1;
-		planeNum = LittleLong( sides[ sideNum ].planeNum );
-		out->bounds[1][0] = s_worldData.planes[ planeNum ].dist;
-
-		sideNum = firstSide + 2;
-		planeNum = LittleLong( sides[ sideNum ].planeNum );
-		out->bounds[0][1] = -s_worldData.planes[ planeNum ].dist;
-
-		sideNum = firstSide + 3;
-		planeNum = LittleLong( sides[ sideNum ].planeNum );
-		out->bounds[1][1] = s_worldData.planes[ planeNum ].dist;
-
-		sideNum = firstSide + 4;
-		planeNum = LittleLong( sides[ sideNum ].planeNum );
-		out->bounds[0][2] = -s_worldData.planes[ planeNum ].dist;
-
-		sideNum = firstSide + 5;
-		planeNum = LittleLong( sides[ sideNum ].planeNum );
-		out->bounds[1][2] = s_worldData.planes[ planeNum ].dist;
 
 		// get information from the shader for fog parameters
 		shader = R_FindShader( fogs->shader, LIGHTMAP_NONE, qtrue );
@@ -1624,8 +1631,9 @@ static	void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump ) {
 
 		// set the gradient vector
 		sideNum = LittleLong( fogs->visibleSide );
-
-		if ( sideNum == -1 ) {
+		
+		// ydnar: made this check a little more strenuous (was sideNum == -1)
+		if ( sideNum < 0 || sideNum >= sidesCount ) {
 			out->hasSurface = qfalse;
 		} else {
 			out->hasSurface = qtrue;
@@ -1647,43 +1655,69 @@ R_LoadLightGrid
 ================
 */
 void R_LoadLightGrid( lump_t *l ) {
-	int		i;
-	vec3_t	maxs;
-	int		numGridPoints;
+	int		i, count;
 	world_t	*w;
 	float	*wMins, *wMaxs;
+	dgrid_t	*in, *out;
 
 	w = &s_worldData;
 
-	w->lightGridInverseSize[0] = 1.0f / w->lightGridSize[0];
-	w->lightGridInverseSize[1] = 1.0f / w->lightGridSize[1];
-	w->lightGridInverseSize[2] = 1.0f / w->lightGridSize[2];
-
 	wMins = w->bmodels[0].bounds[0];
 	wMaxs = w->bmodels[0].bounds[1];
+	
+	for ( i = 0; i < 3; i++ ) {
+		vec3_t maxs;
 
-	for ( i = 0 ; i < 3 ; i++ ) {
-		w->lightGridOrigin[i] = w->lightGridSize[i] * ceil( wMins[i] / w->lightGridSize[i] );
-		maxs[i] = w->lightGridSize[i] * floor( wMaxs[i] / w->lightGridSize[i] );
-		w->lightGridBounds[i] = (maxs[i] - w->lightGridOrigin[i])/w->lightGridSize[i] + 1;
+		w->lightGridMins[i] = w->lightGridSize[i] * ceil( ( wMins[i] + 1 ) / w->lightGridSize[i] );
+		maxs[i] = w->lightGridSize[i] * floor( ( wMaxs[i] - 1 ) / w->lightGridSize[i] );
+		w->lightGridBounds[i] = ( maxs[i] - w->lightGridMins[i] ) / w->lightGridSize[i];
+		w->lightGridBounds[i] = MAX( w->lightGridBounds[i], 0 ) + 1;
 	}
+	w->lightGridBounds[3] = w->lightGridBounds[1] * w->lightGridBounds[0];
 
-	numGridPoints = w->lightGridBounds[0] * w->lightGridBounds[1] * w->lightGridBounds[2];
+	in = (void *)(fileBase + l->fileofs);
+	if(l->filelen % sizeof(*in))
+		ri.Error(ERR_DROP, "LoadMap: funny lump size in %s", s_worldData.name);
+	count = l->filelen / sizeof(*in);
+	out = ri.Hunk_Alloc(count * sizeof(*out), h_low);
 
-	if ( l->filelen != numGridPoints * 8 ) {
-		ri.Printf( PRINT_WARNING, "WARNING: light grid mismatch\n" );
-		w->lightGridData = NULL;
-		return;
+	w->lightGridData = out;
+	w->numLightGridPoints = count;
+
+	// lightgrid is all 8 bit
+	Com_Memcpy( out, in, count*sizeof(*out) );
+}
+
+void R_LoadLightArray( lump_t *l ) {
+	int i, count;
+	world_t *w;
+	unsigned index;
+	unsigned short *in;
+	dgrid_t **out;
+
+	w = &s_worldData;
+
+	in = (void *)(fileBase + l->fileofs);
+	if(l->filelen % sizeof(*in))
+		ri.Error(ERR_DROP, "LoadMap: funny lump size in %s", s_worldData.name);
+	count = l->filelen / sizeof(*in);
+	out = ri.Hunk_Alloc(count * sizeof(*out), h_low);
+
+	w->lightGridArray = out;
+	w->numLightGridArrayItems = count;
+
+	for ( i = 0 ; i < count ; i++, in++, out++ ) {
+		index = LittleShort( *in );
+		if( index >= (unsigned)w->numLightGridPoints ) {
+			ri.Error(ERR_DROP, "LoadMap: funny grid index(%i):%i in %s", i, index, s_worldData.name);
+		}
+		*out = w->lightGridData + index;
 	}
+}
 
-	w->lightGridData = ri.Hunk_Alloc( l->filelen, h_low );
-	Com_Memcpy( w->lightGridData, (void *)(fileBase + l->fileofs), l->filelen );
-
-	// deal with overbright bits
-	for ( i = 0 ; i < numGridPoints ; i++ ) {
-		R_ColorShiftLightingBytes( &w->lightGridData[i*8], &w->lightGridData[i*8] );
-		R_ColorShiftLightingBytes( &w->lightGridData[i*8+3], &w->lightGridData[i*8+3] );
-	}
+void R_GetDistanceCull( float *value ) {
+	if(value)
+		*value = s_worldData.distanceCull;
 }
 
 /*
@@ -1701,6 +1735,9 @@ void R_LoadEntities( lump_t *l ) {
 	w->lightGridSize[0] = 64;
 	w->lightGridSize[1] = 64;
 	w->lightGridSize[2] = 128;
+
+	w->distanceCull = 6000.0;
+	VectorSet(w->ambientColor, 1.0f, 1.0f, 1.0f);
 
 	p = (char *)(fileBase + l->fileofs);
 
@@ -1758,12 +1795,27 @@ void R_LoadEntities( lump_t *l ) {
 			R_RemapShader(value, s, "0");
 			continue;
 		}
+		
+		if (!Q_stricmp(keyname, "ambient")) {
+			w->ambientScale = atof(value);
+			continue;
+		}
+		if (!Q_stricmp(keyname, "_color")) {
+			sscanf(value, "%f %f %f", &w->ambientColor[0], &w->ambientColor[1], &w->ambientColor[2] );
+			continue;
+		}
 		// check for a different grid size
 		if (!Q_stricmp(keyname, "gridsize")) {
 			sscanf(value, "%f %f %f", &w->lightGridSize[0], &w->lightGridSize[1], &w->lightGridSize[2] );
 			continue;
 		}
+		if (!Q_stricmp(keyname, "distancecull")) {
+			w->distanceCull = atof( value );
+			continue;
+		}
 	}
+
+	VectorScale(w->ambientColor, w->ambientScale, w->ambientColor);
 }
 
 /*
@@ -1774,13 +1826,19 @@ R_GetEntityToken
 qboolean R_GetEntityToken( char *buffer, int size ) {
 	const char	*s;
 
-	s = COM_Parse( &s_worldData.entityParsePoint );
-	Q_strncpyz( buffer, s, size );
-	if ( !s_worldData.entityParsePoint || !s[0] ) {
-		s_worldData.entityParsePoint = s_worldData.entityString;
-		return qfalse;
-	} else {
+	if( size == -1 ) {
+		tr.world->entityParsePoint = tr.world->entityString;
 		return qtrue;
+	}
+	else {
+		s = COM_Parse( &s_worldData.entityParsePoint );
+		Q_strncpyz( buffer, s, size );
+		if ( !s_worldData.entityParsePoint || !s[0] ) {
+			s_worldData.entityParsePoint = s_worldData.entityString;
+			return qfalse;
+		} else {
+			return qtrue;
+		}
 	}
 }
 
@@ -1859,6 +1917,7 @@ void RE_LoadWorldMap( const char *name ) {
 	R_LoadVisibility( &header->lumps[LUMP_VISIBILITY] );
 	R_LoadEntities( &header->lumps[LUMP_ENTITIES] );
 	R_LoadLightGrid( &header->lumps[LUMP_LIGHTGRID] );
+	R_LoadLightArray( &header->lumps[LUMP_LIGHTARRAY] );
 
 	s_worldData.dataSize = (byte *)ri.Hunk_Alloc(0, h_low) - startMarker;
 

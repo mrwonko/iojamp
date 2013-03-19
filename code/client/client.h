@@ -29,6 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "snd_public.h"
 #include "../cgame/cg_public.h"
 #include "../game/bg_public.h"
+#include "fx_local.h"
 
 #ifdef USE_CURL
 #include "cl_curl.h"
@@ -39,8 +40,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "speex/speex_preprocess.h"
 #endif
 
-// file full of random crap that gets used to create cl_guid
-#define QKEY_FILE "qkey"
+// file full of random crap that gets used to create ja_guid
+#define QKEY_FILE "jakey"
 #define QKEY_SIZE 2048
 
 #define	RETRANSMIT_TIMEOUT	3000	// time between connection packet retransmits
@@ -59,6 +60,7 @@ typedef struct {
 
 	int				cmdNum;			// the next cmdNum the server is expecting
 	playerState_t	ps;						// complete information about the current player at this time
+	playerState_t	vps;			//vehicle I'm riding's playerstate (if applicable) -rww
 
 	int				numEntities;			// all of the entities that need to be presented
 	int				parseEntitiesNum;		// at the time of this snapshot
@@ -66,6 +68,11 @@ typedef struct {
 	int				serverCommandNum;		// execute all commands up to this before
 											// making the snapshot current
 } clSnapshot_t;
+
+
+typedef struct {
+	int				dummy;
+} clG2Model_t;
 
 
 
@@ -117,6 +124,8 @@ typedef struct {
 
 	// cgame communicates a few values to the client system
 	int			cgameUserCmdValue;	// current weapon to add to usercmd_t
+	int			cgameUserCmdForce;	// current force to add to usercmd_t
+	int			cgameUserCmdInv;	// current inv to add to usercmd_t
 	float		cgameSensitivity;
 
 	// cmds[cmdNumber] is the predicted command, [cmdNumber-1] is the last
@@ -269,6 +278,10 @@ typedef struct {
 	qboolean compat;
 #endif
 
+	clG2Model_t		*models; // [512]
+
+	char			*mSharedMemory; // [MAX_CG_SHARED_BUFFER_SIZE] (2048)
+
 	// big stuff at end of structure so most offsets are 15 bits or less
 	netchan_t	netchan;
 } clientConnection_t;
@@ -305,9 +318,11 @@ typedef struct {
 	int			maxPing;
 	int			ping;
 	qboolean	visible;
-	int			punkbuster;
 	int			g_humanplayers;
 	int			g_needpass;
+	int			fdisable;
+	int			wdisable;
+	int			truejedi;
 } serverInfo_t;
 
 typedef struct {
@@ -319,6 +334,8 @@ typedef struct {
 	qboolean	soundRegistered;
 	qboolean	uiStarted;
 	qboolean	cgameStarted;
+
+	qboolean	fxStarted;
 
 	int			framecount;
 	int			frametime;			// msec since last frame
@@ -349,9 +366,12 @@ typedef struct {
 
 	// rendering info
 	glconfig_t	glconfig;
+	glconfig2_t	glconfig2;
+	qboolean	drawnLoadingScreen;
 	qhandle_t	charSetShader;
 	qhandle_t	whiteShader;
 	qhandle_t	consoleShader;
+	qhandle_t	splashShader;
 } clientStatic_t;
 
 extern	clientStatic_t		cls;
@@ -419,13 +439,16 @@ extern	cvar_t	*cl_activeAction;
 
 extern	cvar_t	*cl_allowDownload;
 extern  cvar_t  *cl_downloadMethod;
-extern	cvar_t	*cl_conXOffset;
 extern	cvar_t	*cl_inGameVideo;
 
 extern	cvar_t	*cl_lanForcePackets;
 extern	cvar_t	*cl_autoRecordDemo;
 
 extern	cvar_t	*cl_consoleKeys;
+
+extern	cvar_t	*cl_rate;
+
+extern	cvar_t	*cl_drawRadar;
 
 #ifdef USE_MUMBLE
 extern	cvar_t	*cl_useMumble;

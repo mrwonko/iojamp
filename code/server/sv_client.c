@@ -130,141 +130,10 @@ void SV_GetChallenge(netadr_t from)
 	challenge->wasrefused = qfalse;
 	challenge->time = svs.time;
 
-#ifndef STANDALONE
-	// Drop the authorize stuff if this client is coming in via v6 as the auth server does not support ipv6.
-	// Drop also for addresses coming in on local LAN and for stand-alone games independent from id's assets.
-	if(challenge->adr.type == NA_IP && !com_standalone->integer && !Sys_IsLANAddress(from))
-	{
-		// look up the authorize server's IP
-		if (svs.authorizeAddress.type == NA_BAD)
-		{
-			Com_Printf( "Resolving %s\n", AUTHORIZE_SERVER_NAME );
-			
-			if (NET_StringToAdr(AUTHORIZE_SERVER_NAME, &svs.authorizeAddress, NA_IP))
-			{
-				svs.authorizeAddress.port = BigShort( PORT_AUTHORIZE );
-				Com_Printf( "%s resolved to %i.%i.%i.%i:%i\n", AUTHORIZE_SERVER_NAME,
-					svs.authorizeAddress.ip[0], svs.authorizeAddress.ip[1],
-					svs.authorizeAddress.ip[2], svs.authorizeAddress.ip[3],
-					BigShort( svs.authorizeAddress.port ) );
-			}
-		}
-
-		// we couldn't contact the auth server, let them in.
-		if(svs.authorizeAddress.type == NA_BAD)
-			Com_Printf("Couldn't resolve auth server address\n");
-
-		// if they have been challenging for a long time and we
-		// haven't heard anything from the authorize server, go ahead and
-		// let them in, assuming the id server is down
-		else if(svs.time - oldestClientTime > AUTHORIZE_TIMEOUT)
-			Com_DPrintf( "authorize server timed out\n" );
-		else
-		{
-			// otherwise send their ip to the authorize server
-			cvar_t	*fs;
-			char	game[1024];
-
-			Com_DPrintf( "sending getIpAuthorize for %s\n", NET_AdrToString( from ));
-		
-			strcpy(game, BASEGAME);
-			fs = Cvar_Get ("fs_game", "", CVAR_INIT|CVAR_SYSTEMINFO );
-			if (fs && fs->string[0] != 0) {
-				strcpy(game, fs->string);
-			}
-			
-			// the 0 is for backwards compatibility with obsolete sv_allowanonymous flags
-			// getIpAuthorize <challenge> <IP> <game> 0 <auth-flag>
-			NET_OutOfBandPrint( NS_SERVER, svs.authorizeAddress,
-				"getIpAuthorize %i %i.%i.%i.%i %s 0 %s",  challenge->challenge,
-				from.ip[0], from.ip[1], from.ip[2], from.ip[3], game, sv_strictAuth->string );
-			
-			return;
-		}
-	}
-#endif
-
 	challenge->pingTime = svs.time;
 	NET_OutOfBandPrint(NS_SERVER, challenge->adr, "challengeResponse %d %d %d",
 			   challenge->challenge, clientChallenge, com_protocol->integer);
 }
-
-#ifndef STANDALONE
-/*
-====================
-SV_AuthorizeIpPacket
-
-A packet has been returned from the authorize server.
-If we have a challenge adr for that ip, send the
-challengeResponse to it
-====================
-*/
-void SV_AuthorizeIpPacket( netadr_t from ) {
-	int		challenge;
-	int		i;
-	char	*s;
-	char	*r;
-	challenge_t *challengeptr;
-
-	if ( !NET_CompareBaseAdr( from, svs.authorizeAddress ) ) {
-		Com_Printf( "SV_AuthorizeIpPacket: not from authorize server\n" );
-		return;
-	}
-
-	challenge = atoi( Cmd_Argv( 1 ) );
-
-	for (i = 0 ; i < MAX_CHALLENGES ; i++) {
-		if ( svs.challenges[i].challenge == challenge ) {
-			break;
-		}
-	}
-	if ( i == MAX_CHALLENGES ) {
-		Com_Printf( "SV_AuthorizeIpPacket: challenge not found\n" );
-		return;
-	}
-	
-	challengeptr = &svs.challenges[i];
-
-	// send a packet back to the original client
-	challengeptr->pingTime = svs.time;
-	s = Cmd_Argv( 2 );
-	r = Cmd_Argv( 3 );			// reason
-
-	if ( !Q_stricmp( s, "demo" ) ) {
-		// they are a demo client trying to connect to a real server
-		NET_OutOfBandPrint( NS_SERVER, challengeptr->adr, "print\nServer is not a demo server\n" );
-		// clear the challenge record so it won't timeout and let them through
-		Com_Memset( challengeptr, 0, sizeof( *challengeptr ) );
-		return;
-	}
-	if ( !Q_stricmp( s, "accept" ) ) {
-		NET_OutOfBandPrint(NS_SERVER, challengeptr->adr,
-			"challengeResponse %d %d %d", challengeptr->challenge, challengeptr->clientChallenge, com_protocol->integer);
-		return;
-	}
-	if ( !Q_stricmp( s, "unknown" ) ) {
-		if (!r) {
-			NET_OutOfBandPrint( NS_SERVER, challengeptr->adr, "print\nAwaiting CD key authorization\n" );
-		} else {
-			NET_OutOfBandPrint( NS_SERVER, challengeptr->adr, "print\n%s\n", r);
-		}
-		// clear the challenge record so it won't timeout and let them through
-		Com_Memset( challengeptr, 0, sizeof( *challengeptr ) );
-		return;
-	}
-
-	// authorization failed
-	if (!r) {
-		NET_OutOfBandPrint( NS_SERVER, challengeptr->adr, "print\nSomeone is using this CD Key\n" );
-	} else {
-		NET_OutOfBandPrint( NS_SERVER, challengeptr->adr, "print\n%s\n", r );
-	}
-
-	// clear the challenge record so it won't timeout and let them through
-	Com_Memset( challengeptr, 0, sizeof(*challengeptr) );
-}
-#endif
-
 /*
 ==================
 SV_IsBanned
@@ -307,6 +176,10 @@ A "connect" OOB command has been received
 ==================
 */
 
+char *SV_GetString( const char *refName ) {
+	return SE_GetString(va("MP_SVGAME_%s", refName));
+}
+
 void SV_DirectConnect( netadr_t from ) {
 	char		userinfo[MAX_INFO_STRING];
 	int			i;
@@ -322,6 +195,7 @@ void SV_DirectConnect( netadr_t from ) {
 	intptr_t		denied;
 	int			count;
 	char		*ip;
+	const char	*stringEd;
 #ifdef LEGACY_PROTOCOL
 	qboolean	compat = qfalse;
 #endif
@@ -421,20 +295,23 @@ void SV_DirectConnect( netadr_t from ) {
 		// never reject a LAN client based on ping
 		if ( !Sys_IsLANAddress( from ) ) {
 			if ( sv_minPing->value && ping < sv_minPing->value ) {
-				NET_OutOfBandPrint( NS_SERVER, from, "print\nServer is for high pings only\n" );
-				Com_DPrintf ("Client %i rejected on a too low ping\n", i);
+				NET_OutOfBandPrint( NS_SERVER, from, "print\n%s", SV_StringEdString("SERVER_FOR_HIGH_PING") );
+				stringEd = SV_GetString("CLIENT_REJECTED_LOW_PING");
+				Com_DPrintf (stringEd, i);
 				challengeptr->wasrefused = qtrue;
 				return;
 			}
 			if ( sv_maxPing->value && ping > sv_maxPing->value ) {
-				NET_OutOfBandPrint( NS_SERVER, from, "print\nServer is for low pings only\n" );
-				Com_DPrintf ("Client %i rejected on a too high ping\n", i);
+				NET_OutOfBandPrint( NS_SERVER, from, "print\n%s", SV_StringEdString("SERVER_FOR_LOW_PING") );
+				stringEd = SV_GetString("CLIENT_REJECTED_LOW_PING");
+				Com_DPrintf (stringEd, i);
 				challengeptr->wasrefused = qtrue;
 				return;
 			}
 		}
 
-		Com_Printf("Client %i connecting with %i challenge ping\n", i, ping);
+		stringEd = SV_GetString("CLIENT_CONN_WITH_PING");
+		Com_Printf(stringEd, i, ping);
 		challengeptr->connected = qtrue;
 	}
 
@@ -510,7 +387,7 @@ void SV_DirectConnect( netadr_t from ) {
 			}
 		}
 		else {
-			NET_OutOfBandPrint( NS_SERVER, from, "print\nServer is full.\n" );
+			NET_OutOfBandPrint( NS_SERVER, from, "print\n%s\n", SV_StringEdString("SERVER_IS_FULL") );
 			Com_DPrintf ("Rejected a connection.\n");
 			return;
 		}
@@ -756,6 +633,10 @@ static void SV_SendClientGameState( client_t *client ) {
 
 	// write the checksum feed
 	MSG_WriteLong( &msg, sv.checksumFeed);
+	
+	// There's something unknown going on here at the moment.
+	// For now we're just going with default of adding a 0 short to keep jampded compatability.
+	MSG_WriteShort( &msg, 0);
 
 	// deliver this to the client
 	SV_SendMessageToClient( &msg, client );
@@ -930,9 +811,6 @@ int SV_WriteDownloadToClient(client_t *cl, msg_t *msg)
 	if(!cl->download)
 	{
 		qboolean idPack = qfalse;
-		#ifndef STANDALONE
-		qboolean missionPack = qfalse;
-		#endif
 	
  		// Chop off filename extension.
 		Com_sprintf(pakbuf, sizeof(pakbuf), "%s", cl->downloadName);
@@ -960,11 +838,7 @@ int SV_WriteDownloadToClient(client_t *cl, msg_t *msg)
 
 						// now that we know the file is referenced,
 						// check whether it's legal to download it.
-#ifndef STANDALONE
-						missionPack = FS_idPak(pakbuf, BASETA, NUM_TA_PAKS);
-						idPack = missionPack;
-#endif
-						idPack = idPack || FS_idPak(pakbuf, BASEGAME, NUM_ID_PAKS);
+						idPack = idPack || FS_idPak(pakbuf, BASEGAME, NUM_RV_PAKS);
 
 						break;
 					}
@@ -986,15 +860,8 @@ int SV_WriteDownloadToClient(client_t *cl, msg_t *msg)
 				Com_sprintf(errorMessage, sizeof(errorMessage), "File \"%s\" is not referenced and cannot be downloaded.", cl->downloadName);
 			}
 			else if (idPack) {
-				Com_Printf("clientDownload: %d : \"%s\" cannot download id pk3 files\n", (int) (cl - svs.clients), cl->downloadName);
-#ifndef STANDALONE
-				if(missionPack)
-				{
-					Com_sprintf(errorMessage, sizeof(errorMessage), "Cannot autodownload Team Arena file \"%s\"\n"
-									"The Team Arena mission pack can be found in your local game store.", cl->downloadName);
-				}
-				else
-#endif
+				Com_Printf("clientDownload: %d : \"%s\" cannot download raven ja pk3 files\n", (int) (cl - svs.clients), cl->downloadName);
+				Com_sprintf(errorMessage, sizeof(errorMessage), "Cannot autodownload raven ja pk3 file \"%s\"", cl->downloadName);
 				{
 					Com_sprintf(errorMessage, sizeof(errorMessage), "Cannot autodownload id pk3 file \"%s\"", cl->downloadName);
 				}
@@ -1194,7 +1061,7 @@ The client is going to disconnect, so remove the connection immediately  FIXME: 
 =================
 */
 static void SV_Disconnect_f( client_t *cl ) {
-	SV_DropClient( cl, "disconnected" );
+	SV_DropClient( cl, "@@@DISCONNECTED" );
 }
 
 /*
@@ -1225,9 +1092,9 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 
 		nChkSum1 = nChkSum2 = 0;
 		// we run the game, so determine which cgame and ui the client "should" be running
-		bGood = (FS_FileIsInPAK("vm/cgame.qvm", &nChkSum1) == 1);
+			bGood = (FS_FileIsInPAK("cgame" ARCH_STRING DLL_EXT, &nChkSum1) == 1);
 		if (bGood)
-			bGood = (FS_FileIsInPAK("vm/ui.qvm", &nChkSum2) == 1);
+			bGood = (FS_FileIsInPAK("ui" ARCH_STRING DLL_EXT, &nChkSum2) == 1);
 
 		nClientPaks = Cmd_Argc();
 
@@ -1478,6 +1345,13 @@ SV_UpdateUserinfo_f
 ==================
 */
 static void SV_UpdateUserinfo_f( client_t *cl ) {
+#if 0
+	/* TODO */
+	if( cl->lastUserInfoChange > svs.time && cl->lastUserInfoCount > 5 ) {
+		SV_SendServerCommand( cl, "print \"@@@TOO_MANY_INFO\n\"" );
+		return;
+	}
+#endif
 	Q_strncpyz( cl->userinfo, Cmd_Argv(1), sizeof(cl->userinfo) );
 
 	SV_UserinfoChanged( cl );

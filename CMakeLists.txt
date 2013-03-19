@@ -11,7 +11,6 @@ option(UseCodecVorbis "Whether to use the Vorbis codec" OFF)
 option(UseCodecOpus "Whether to use the Opus codec" ON)
 option(UseMumble "Whether to enable Mumble support" ON)
 option(UseVoip "Whether to enable Voice over IP" ON)
-option(UseFreetype "Whether to use Freetype" OFF)
 option(UseInternalSpeex "Whether to use the included Speex instead of a locally installed one" ON)
 option(UseInternalOgg "Whether to use the included Ogg instead of a locally installed one" ON)
 option(UseInternalOpus "Whether to use the included Opus instead of a locally installed one" ON)
@@ -21,7 +20,7 @@ option(UseInternalPng "Whether to use the included PNG instead of a locally inst
 option(UseInternalMad "Whether to use the included Mad instead of a locally installed one" ON)
 option(UseRendererDlopen "Whether to load the renderer via dlopen" ON)
 
-set(Version 1.36) # TODO: bump this to 2.0 once supporting JKA instead of Q3
+set(Version 2.0)
 set(CodeDir "${CMAKE_CURRENT_SOURCE_DIR}/code")
 set(ClientDir "${CodeDir}/client")
 set(ServerDir "${CodeDir}/server")
@@ -46,6 +45,8 @@ set(OggDir "${CodeDir}/libogg-1.3.0")
 set(OpusDir "${CodeDir}/opus-1.0.2")
 set(OpusfileDir "${CodeDir}/opusfile-0.2")
 set(ZlibDir "${CodeDir}/zlib")
+set(IcarusDir "${CodeDir}/icarus")
+set(Ghoul2Dir "${CodeDir}/ghoul2")
 #set(Q3asmDir "${CodeDir}/tools/asm")
 #set(LburgDir "${CodeDir}/tools/lcc/lburg")
 #set(Q3cppDir "${CodeDir}/tools/lcc/cpp")
@@ -86,14 +87,12 @@ set(CommonDefines "")# NO_ASM_SUPPORTED)
 #   Common Renderer Setup
 
 set(CommonRendererSrcFiles
-	"${RendererCommonDir}/tr_font.c"
 	"${RendererCommonDir}/tr_image_bmp.c"
 	"${RendererCommonDir}/tr_image_jpg.c"
 	"${RendererCommonDir}/tr_image_pcx.c"
 	"${RendererCommonDir}/tr_image_png.c"
 	"${RendererCommonDir}/tr_image_tga.c"
 	"${RendererCommonDir}/tr_noise.c"
-	"${RendererCommonDir}/tr_font.c"
 	"${RendererCommonDir}/iqm.h"
 	"${RendererCommonDir}/qgl.h"
 	"${RendererCommonDir}/tr_common.h"
@@ -103,14 +102,6 @@ set(CommonRendererSrcFiles
 set(CommonRendererIncludeDirs ${SDL_INCLUDE_DIR} ${OPENGL_INCLUDE_DIR})
 set(CommonRendererLibs ${SDL_LIBRARY} ${OPENGL_LIBRARIES})
 set(CommonRendererDefines ${CommonDefines})
-
-# FreeType
-if(UseFreetype)
-	set(CommonRendererDefines ${CommonRendererDefines} BUILD_FREETYPE)
-	find_package(Freetype REQUIRED)
-	set(CommonRendererIncludeDirs ${CommonRendererIncludeDirs} ${FREETYPE_INCLUDE_DIRS})
-	set(CommonRendererLibs ${CommonRendererLibs} ${FREETYPE_LIBRARIES})
-endif(UseFreetype)
 
 # JPEG
 if(UseInternalJpeg)
@@ -269,6 +260,7 @@ set(RendererGl1SrcFiles
 	"${RendererGl1Dir}/tr_shadows.c"
 	"${RendererGl1Dir}/tr_surface.c"
 	"${RendererGl1Dir}/tr_world.c"
+	"${RendererGl1Dir}/tr_font.c"
 	
 	"${RendererGl1Dir}/tr_local.h"
 	
@@ -350,6 +342,7 @@ set(IojampSrcFiles
 	"${ClientDir}/snd_mem.c"
 	"${ClientDir}/snd_mix.c"
 	"${ClientDir}/snd_wavelet.c"
+	"${ClientDir}/snd_as.c"
 	
 	"${ClientDir}/snd_main.c"
 	"${ClientDir}/snd_codec.c"
@@ -357,7 +350,7 @@ set(IojampSrcFiles
 	"${ClientDir}/snd_codec_ogg.c"
 	"${ClientDir}/snd_codec_opus.c"
 	"${ClientDir}/snd_codec_mp3.c"
-"${ClientDir}/snd_codec.h"
+	"${ClientDir}/snd_codec.h"
 	
 	"${ClientDir}/qal.c"
 	"${ClientDir}/snd_openal.c"
@@ -404,7 +397,36 @@ set(IojampSrcFiles
 	"${UIDir}/ui_public.h"
 	"${CGameDir}/cg_public.h"
 	"${GameDir}/bg_public.h"
+	"${GameDir}/bg_weapons.h"
+	"${GameDir}/bg_vehicles.h"
+	"${GameDir}/anims.h"
 	"${GameDir}/g_public.h"
+	"${CodeDir}/namespace_begin.h"
+	"${CodeDir}/namespace_end.h"
+	
+	"${IcarusDir}/interpreter.h"
+	"${IcarusDir}/Q3_Interface.h"
+	"${IcarusDir}/Q3_Registers.h"
+	"${Ghoul2Dir}/G2.h"
+	"${RendererGl1Dir}/tr_model_ghoul2.c"
+	
+	"${ClientDir}/fx_load.c"
+	"${ClientDir}/fx_local.h"
+	"${ClientDir}/fx_main.c"
+	"${ClientDir}/fx_primitive.c"
+	"${ClientDir}/fx_primitive_camerashake.c"
+	"${ClientDir}/fx_primitive_cylinder.c"
+	"${ClientDir}/fx_primitive_decal.c"
+	"${ClientDir}/fx_primitive_electricity"
+	"${ClientDir}/fx_primitive_emitter"
+	"${ClientDir}/fx_primitive_flash.c"
+	"${ClientDir}/fx_primitive_fxrunner.c"
+	"${ClientDir}/fx_primitive_light.c"
+	"${ClientDir}/fx_primitive_line.c"
+	"${ClientDir}/fx_primitive_orparticle.c"
+	"${ClientDir}/fx_primitive_particle.c"
+	"${ClientDir}/fx_primitive_sound.c"
+	"${ClientDir}/fx_primitive_tail.c"
 	)
 
 # Botlib needs BOTLIB define when building
@@ -476,7 +498,7 @@ set_source_files_properties(${IojampBotlibSrcFiles} PROPERTIES COMPILE_DEFINITIO
 set(IojampSrcFiles ${IojampSrcFiles} ${IojampBotlibSrcFiles})
 set(IojampLibs "")
 set(IojampDefines ${CommonDefines}) # NO_VM_COMPILED)
-set(IojampIncludeDirs "")
+set(IojampIncludeDirs "${CommonDir}")
 
 if(WIN32)
 	set(IojampSrcFiles

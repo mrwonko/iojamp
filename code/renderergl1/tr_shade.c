@@ -231,6 +231,20 @@ static void R_BindAnimatedImage( textureBundle_t *bundle ) {
 		return;
 	}
 
+	if ( bundle->isOneShot ) {
+		if (backEnd.currentEntity && (backEnd.currentEntity->e.renderfx & RF_SETANIMINDEX)) {
+			int frame = backEnd.currentEntity->e.skinNum;
+			if( frame >= 0 && frame <= bundle->numImageAnimations-1 ) {
+				GL_Bind( bundle->image[frame] );
+				return;
+			}
+		}
+		if( bundle->didOneShot ) {
+			GL_Bind( bundle->image[bundle->numImageAnimations-1] );
+			return;
+		}
+	}
+
 	// it is necessary to do this messy calc to make sure animations line up
 	// exactly with waveforms of the same frequency
 	index = ri.ftol(tess.shaderTime * bundle->imageAnimationSpeed * FUNCTABLE_SIZE);
@@ -242,6 +256,9 @@ static void R_BindAnimatedImage( textureBundle_t *bundle ) {
 	index %= bundle->numImageAnimations;
 
 	GL_Bind( bundle->image[ index ] );
+	if ( bundle->isOneShot ) {
+		bundle->didOneShot = qtrue;
+	}
 }
 
 /*
@@ -1109,6 +1126,9 @@ static void ComputeTexCoords( shaderStage_t *pStage ) {
 static void RB_IterateStagesGeneric( shaderCommands_t *input )
 {
 	int stage;
+	qboolean overridealpha, overridergb;
+	qboolean didanyoverride = qfalse;
+	int oldalphaGen = 0, oldrgbGen = 0;
 
 	for ( stage = 0; stage < MAX_SHADER_STAGES; stage++ )
 	{
@@ -1119,7 +1139,32 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			break;
 		}
 
+		// Override the shader rgb tint if requested.
+		if(backEnd.currentEntity->e.renderfx & RF_RGB_TINT)
+		{
+			overridergb = qtrue;
+			oldrgbGen = pStage->rgbGen;
+			pStage->rgbGen = CGEN_ENTITY;
+		}
+		else
+			overridergb = qfalse;
+
+		// Override the shader alpha channel if requested.
+		if(backEnd.currentEntity->e.renderfx & RF_FORCE_ENT_ALPHA)
+		{
+			overridealpha = qtrue;
+			oldalphaGen = pStage->alphaGen;
+			pStage->alphaGen = AGEN_ENTITY;
+		}
+		else
+			overridealpha = qfalse;
+
 		ComputeColors( pStage );
+		
+		if(overridergb)
+			pStage->rgbGen = (colorGen_t)oldrgbGen;
+		if(overridealpha)
+			pStage->alphaGen = (alphaGen_t)oldalphaGen;
 		ComputeTexCoords( pStage );
 
 		if ( !setArraysOnce )
@@ -1145,14 +1190,29 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input )
 			//
 			// set state
 			//
-			if ( pStage->bundle[0].vertexLightmap && ( (r_vertexLight->integer && !r_uiFullScreen->integer) || glConfig.hardwareType == GLHW_PERMEDIA2 ) && r_lightmap->integer )
+			if ( pStage->bundle[0].vertexLightmap && ( (r_vertexLight->integer && !r_uiFullScreen->integer) || glConfig2.hardwareType == GLHW_PERMEDIA2 ) && r_lightmap->integer )
 			{
 				GL_Bind( tr.whiteImage );
 			}
 			else 
 				R_BindAnimatedImage( &pStage->bundle[0] );
+			if(overridealpha && backEnd.currentEntity->e.shaderRGBA[3] < 0xFF && !(pStage->stateBits & GLS_ATEST_BITS))
+			{
+				GL_State((pStage->stateBits & ~(GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS | GLS_ATEST_BITS))  // remove the shader set values.
+					| GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_ATEST_GT_0); // Now add the default values.
+				didanyoverride = qtrue;
+			}
 
-			GL_State( pStage->stateBits );
+			//if(overridergb && (backEnd.currentEntity->e.shaderRGBA[0] < 0xFF || backEnd.currentEntity->e.shaderRGBA[1] < 0xFF || backEnd.currentEntity->e.shaderRGBA[2] < 0xFF) && !(pStage->stateBits & GLS_ATEST_BITS))
+			//{
+			//	GL_State((pStage->stateBits & ~(GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS | GLS_ATEST_BITS))  // remove the shader set values.
+			//		| GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_ATEST_GT_0); // Now add the default values.
+			//	didanyoverride = qtrue;
+			//}
+
+			//else
+			if(!didanyoverride)
+				GL_State( pStage->stateBits );
 
 			//
 			// draw

@@ -47,6 +47,7 @@ cvar_t	*sv_padPackets;			// add nop bytes to messages
 cvar_t	*sv_killserver;			// menu system can set to 1 to shut server down
 cvar_t	*sv_mapname;
 cvar_t	*sv_mapChecksum;
+cvar_t	*sv_cheats;
 cvar_t	*sv_serverid;
 cvar_t	*sv_minRate;
 cvar_t	*sv_maxRate;
@@ -57,9 +58,6 @@ cvar_t	*sv_gametype;
 cvar_t	*sv_pure;
 cvar_t	*sv_floodProtect;
 cvar_t	*sv_lanForceRate; // dedicated 1 (LAN) server forces local client rates to 99999 (bug #491)
-#ifndef STANDALONE
-cvar_t	*sv_strictAuth;
-#endif
 cvar_t	*sv_banFile;
 
 serverBan_t serverBans[SERVER_MAXBANS];
@@ -80,7 +78,7 @@ SV_ExpandNewlines
 Converts newlines to "\n" so a line prints nicer
 ===============
 */
-static char	*SV_ExpandNewlines( char *in ) {
+char	*SV_ExpandNewlines( char *in ) {
 	static	char	string[1024];
 	int		l;
 
@@ -208,6 +206,11 @@ void QDECL SV_SendServerCommand(client_t *cl, const char *fmt, ...) {
 		Com_Printf ("broadcast: %s\n", SV_ExpandNewlines((char *)message) );
 	}
 
+	// hack to echo chats to console
+	if ( com_dedicated->integer && !strncmp( (char *)message, "chat", 4 ) ) {
+		Com_Printf ("%s\n", SV_ExpandNewlines((char *)message));
+	}
+
 	// send the data to all relevent clients
 	for (j = 0, client = svs.clients; j < sv_maxclients->integer ; j++, client++) {
 		SV_AddServerCommand( client, (char *)message );
@@ -241,6 +244,7 @@ void SV_MasterHeartbeat(const char *message)
 	int			i;
 	int			res;
 	int			netenabled;
+	qboolean	dpmaster = qtrue;
 
 	netenabled = Cvar_VariableIntegerValue("net_enabled");
 
@@ -312,16 +316,29 @@ void SV_MasterHeartbeat(const char *message)
 			}
 		}
 
+		dpmaster = qtrue;
 
-		Com_Printf ("Sending heartbeat to %s\n", sv_master[i]->string );
+		if(!Q_stricmp(sv_master[i]->string, MASTER_SERVER_NAME) || !Q_stricmp(sv_master[i]->string, JKHUB_MASTER_SERVER_NAME)) {
+			dpmaster = qfalse;
+		}
+
+		Com_Printf ("Sending heartbeat to %s (%s)\n", sv_master[i]->string, dpmaster ? "DP" : "Legacy" );
 
 		// this command should be changed if the server info / status format
 		// ever incompatably changes
 
-		if(adr[i][0].type != NA_BAD)
-			NET_OutOfBandPrint( NS_SERVER, adr[i][0], "heartbeat %s\n", message);
-		if(adr[i][1].type != NA_BAD)
-			NET_OutOfBandPrint( NS_SERVER, adr[i][1], "heartbeat %s\n", message);
+		if(dpmaster) {
+			if(adr[i][0].type != NA_BAD)
+				NET_OutOfBandPrint( NS_SERVER, adr[i][0], "heartbeat %s\n", HEARTBEAT_FOR_MASTER_DP);
+			if(adr[i][1].type != NA_BAD)
+				NET_OutOfBandPrint( NS_SERVER, adr[i][1], "heartbeat %s\n", HEARTBEAT_FOR_MASTER_DP);
+		}
+		else {
+			if(adr[i][0].type != NA_BAD)
+				NET_OutOfBandPrint( NS_SERVER, adr[i][0], "heartbeat %s\n", message);
+			if(adr[i][1].type != NA_BAD)
+				NET_OutOfBandPrint( NS_SERVER, adr[i][1], "heartbeat %s\n", message);
+		}
 	}
 }
 
@@ -676,7 +693,10 @@ void SVC_Info( netadr_t from ) {
 		va("%i", sv_maxclients->integer - sv_privateClients->integer ) );
 	Info_SetValueForKey( infostring, "gametype", va("%i", sv_gametype->integer ) );
 	Info_SetValueForKey( infostring, "pure", va("%i", sv_pure->integer ) );
-	Info_SetValueForKey(infostring, "g_needpass", va("%d", Cvar_VariableIntegerValue("g_needpass")));
+	Info_SetValueForKey(infostring, "needpass", va("%d", Cvar_VariableIntegerValue("g_needpass")));
+	Info_SetValueForKey(infostring, "fdisable", va("%d", Cvar_VariableIntegerValue("g_forcePowerDisable")));
+	Info_SetValueForKey(infostring, "wdisable", va("%d", Cvar_VariableIntegerValue("g_weaponDisable")));
+	Info_SetValueForKey(infostring, "truejedi", va("%d", Cvar_VariableIntegerValue("g_jediVmerc")));
 
 #ifdef USE_VOIP
 	if (sv_voip->integer) {
@@ -818,10 +838,6 @@ static void SV_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 		SV_GetChallenge(from);
 	} else if (!Q_stricmp(c, "connect")) {
 		SV_DirectConnect( from );
-#ifndef STANDALONE
-	} else if (!Q_stricmp(c, "ipAuthorize")) {
-		SV_AuthorizeIpPacket( from );
-#endif
 	} else if (!Q_stricmp(c, "rcon")) {
 		SVC_RemoteCommand( from, msg );
 	} else if (!Q_stricmp(c, "disconnect")) {

@@ -31,6 +31,12 @@ These commands can only be entered from stdin or by a remote operator datagram
 ===============================================================================
 */
 
+const char *SV_StringEdString( const char *refName ) {
+	static char text[1024]={0};
+	Com_sprintf(text, sizeof(text), "@@@%s", refName);
+	return text;
+}
+
 
 /*
 ==================
@@ -93,6 +99,58 @@ static client_t *SV_GetPlayerByHandle( void ) {
 	Com_Printf( "Player %s is not on the server\n", s );
 
 	return NULL;
+}
+
+/*
+============
+SV_PlayerIDCompletion
+============
+*/
+void SV_PlayerIDCompletion( void(*callback)(const char *s) ) {
+	client_t *cl;
+	int i;
+
+	// make sure server is running
+	if ( !com_sv_running->integer ) {
+		return;
+	}
+
+	for ( i=0, cl=svs.clients ; i < sv_maxclients->integer ; i++,cl++ )
+	{
+		if ( !cl->state ) {
+			continue;
+		}
+		callback( va("%i", i) );
+	}
+}
+
+/*
+============
+SV_PlayerNameCompletion
+============
+*/
+void SV_PlayerNameCompletion( void(*callback)(const char *s) ) {
+	client_t *cl;
+	int i;
+	char cleanName[64];
+
+	// make sure server is running
+	if ( !com_sv_running->integer ) {
+		return;
+	}
+
+	for ( i=0, cl=svs.clients ; i < sv_maxclients->integer ; i++,cl++ )
+	{
+		if ( !cl->state ) {
+			continue;
+		}
+		Q_strncpyz( cleanName, cl->name, sizeof(cleanName) );
+		Q_CleanStr( cleanName );
+		if(strstr(cleanName, " "))
+			callback( va("\"%s\"", cleanName ) );
+		else
+			callback( cleanName );
+	}
 }
 
 /*
@@ -159,6 +217,11 @@ static void SV_Map_f( void ) {
 
 	map = Cmd_Argv(1);
 	if ( !map ) {
+		return;
+	}
+
+	if ( strchr(map, '\\') ) {
+		Com_Printf ("Can't have mapnames with a \\\n");
 		return;
 	}
 
@@ -389,7 +452,7 @@ static void SV_Kick_f( void ) {
 				if( cl->netchan.remoteAddress.type == NA_LOOPBACK ) {
 					continue;
 				}
-				SV_DropClient( cl, "was kicked" );
+				SV_DropClient( cl, SV_StringEdString("WAS_KICKED") );
 				cl->lastPacketTime = svs.time;	// in case there is a funny zombie
 			}
 		}
@@ -401,18 +464,18 @@ static void SV_Kick_f( void ) {
 				if( cl->netchan.remoteAddress.type != NA_BOT ) {
 					continue;
 				}
-				SV_DropClient( cl, "was kicked" );
+				SV_DropClient( cl, SV_StringEdString("WAS_KICKED") );
 				cl->lastPacketTime = svs.time;	// in case there is a funny zombie
 			}
 		}
 		return;
 	}
 	if( cl->netchan.remoteAddress.type == NA_LOOPBACK ) {
-		Com_Printf("Cannot kick host player\n");
+		SV_SendServerCommand(NULL, "print \"%s\"", SV_StringEdString("CANNOT_KICK_HOST"));
 		return;
 	}
 
-	SV_DropClient( cl, "was kicked" );
+	SV_DropClient( cl, SV_StringEdString("WAS_KICKED") );
 	cl->lastPacketTime = svs.time;	// in case there is a funny zombie
 }
 
@@ -472,7 +535,7 @@ static void SV_KickAll_f( void ) {
 			continue;
 		}
 
-		SV_DropClient( cl, "was kicked" );
+		SV_DropClient( cl, SV_StringEdString("WAS_KICKED") );
 		cl->lastPacketTime = svs.time; // in case there is a funny zombie
 	}
 }
@@ -507,7 +570,7 @@ static void SV_KickNum_f( void ) {
 		return;
 	}
 
-	SV_DropClient( cl, "was kicked" );
+	SV_DropClient( cl, SV_StringEdString("WAS_KICKED") );
 	cl->lastPacketTime = svs.time;	// in case there is a funny zombie
 }
 
@@ -547,81 +610,8 @@ static void SV_Ban_f( void ) {
 		return;
 	}
 
-	// look up the authorize server's IP
-	if ( !svs.authorizeAddress.ip[0] && svs.authorizeAddress.type != NA_BAD ) {
-		Com_Printf( "Resolving %s\n", AUTHORIZE_SERVER_NAME );
-		if ( !NET_StringToAdr( AUTHORIZE_SERVER_NAME, &svs.authorizeAddress, NA_IP ) ) {
-			Com_Printf( "Couldn't resolve address\n" );
-			return;
-		}
-		svs.authorizeAddress.port = BigShort( PORT_AUTHORIZE );
-		Com_Printf( "%s resolved to %i.%i.%i.%i:%i\n", AUTHORIZE_SERVER_NAME,
-			svs.authorizeAddress.ip[0], svs.authorizeAddress.ip[1],
-			svs.authorizeAddress.ip[2], svs.authorizeAddress.ip[3],
-			BigShort( svs.authorizeAddress.port ) );
-	}
-
-	// otherwise send their ip to the authorize server
-	if ( svs.authorizeAddress.type != NA_BAD ) {
-		NET_OutOfBandPrint( NS_SERVER, svs.authorizeAddress,
-			"banUser %i.%i.%i.%i", cl->netchan.remoteAddress.ip[0], cl->netchan.remoteAddress.ip[1], 
-								   cl->netchan.remoteAddress.ip[2], cl->netchan.remoteAddress.ip[3] );
-		Com_Printf("%s was banned from coming back\n", cl->name);
-	}
-}
-
-/*
-==================
-SV_BanNum_f
-
-Ban a user from being able to play on this server through the auth
-server
-==================
-*/
-static void SV_BanNum_f( void ) {
-	client_t	*cl;
-
-	// make sure server is running
-	if ( !com_sv_running->integer ) {
-		Com_Printf( "Server is not running.\n" );
-		return;
-	}
-
-	if ( Cmd_Argc() != 2 ) {
-		Com_Printf ("Usage: banClient <client number>\n");
-		return;
-	}
-
-	cl = SV_GetPlayerByNum();
-	if ( !cl ) {
-		return;
-	}
-	if( cl->netchan.remoteAddress.type == NA_LOOPBACK ) {
-		Com_Printf("Cannot kick host player\n");
-		return;
-	}
-
-	// look up the authorize server's IP
-	if ( !svs.authorizeAddress.ip[0] && svs.authorizeAddress.type != NA_BAD ) {
-		Com_Printf( "Resolving %s\n", AUTHORIZE_SERVER_NAME );
-		if ( !NET_StringToAdr( AUTHORIZE_SERVER_NAME, &svs.authorizeAddress, NA_IP ) ) {
-			Com_Printf( "Couldn't resolve address\n" );
-			return;
-		}
-		svs.authorizeAddress.port = BigShort( PORT_AUTHORIZE );
-		Com_Printf( "%s resolved to %i.%i.%i.%i:%i\n", AUTHORIZE_SERVER_NAME,
-			svs.authorizeAddress.ip[0], svs.authorizeAddress.ip[1],
-			svs.authorizeAddress.ip[2], svs.authorizeAddress.ip[3],
-			BigShort( svs.authorizeAddress.port ) );
-	}
-
-	// otherwise send their ip to the authorize server
-	if ( svs.authorizeAddress.type != NA_BAD ) {
-		NET_OutOfBandPrint( NS_SERVER, svs.authorizeAddress,
-			"banUser %i.%i.%i.%i", cl->netchan.remoteAddress.ip[0], cl->netchan.remoteAddress.ip[1], 
-								   cl->netchan.remoteAddress.ip[2], cl->netchan.remoteAddress.ip[3] );
-		Com_Printf("%s was banned from coming back\n", cl->name);
-	}
+	SV_DropClient( cl, SV_StringEdString("WAS_KICKED") );
+	cl->lastPacketTime = svs.time;	// in case there is a funny zombie
 }
 #endif
 
@@ -1217,14 +1207,15 @@ static void SV_Status_f( void ) {
 	Com_Printf ("\n");
 }
 
+#define EC "\x19"
+
 /*
 ==================
 SV_ConSay_f
 ==================
 */
 static void SV_ConSay_f(void) {
-	char	*p;
-	char	text[1024];
+	char	text[MAX_STRING_CHARS];
 
 	// make sure server is running
 	if ( !com_sv_running->integer ) {
@@ -1236,17 +1227,28 @@ static void SV_ConSay_f(void) {
 		return;
 	}
 
-	strcpy (text, "console: ");
-	p = Cmd_Args();
-
-	if ( *p == '"' ) {
-		p++;
-		p[strlen(p)-1] = 0;
-	}
-
-	strcat(text, p);
+	Com_sprintf(text, sizeof(text), "console"EC": %s", Cmd_Args());
 
 	SV_SendServerCommand(NULL, "chat \"%s\"", text);
+}
+
+/*
+==================
+SV_ConChat_f
+==================
+*/
+static void SV_ConChat_f(void) {
+	// make sure server is running
+	if ( !com_sv_running->integer ) {
+		Com_Printf( "Server is not running.\n" );
+		return;
+	}
+
+	if ( Cmd_Argc () < 2 ) {
+		return;
+	}
+
+	SV_SendServerCommand(NULL, "chat \"%s\"", Cmd_Args());
 }
 
 /*
@@ -1254,9 +1256,12 @@ static void SV_ConSay_f(void) {
 SV_ConTell_f
 ==================
 */
+
+char *SV_ExpandNewlines( char *in );
 static void SV_ConTell_f(void) {
 	char	*p;
-	char	text[1024];
+	char	prefix[17];
+	char	text[MAX_STRING_CHARS];
 	client_t	*cl;
 
 	// make sure server is running
@@ -1275,17 +1280,40 @@ static void SV_ConTell_f(void) {
 		return;
 	}
 
-	strcpy (text, "console_tell: ");
+	Com_sprintf(prefix, sizeof(prefix), EC"[console"EC"]"EC": %c%c", Q_COLOR_ESCAPE, COLOR_MAGENTA);
 	p = Cmd_ArgsFrom(2);
+	Q_strncpyz(text, p, sizeof(text));
 
-	if ( *p == '"' ) {
-		p++;
-		p[strlen(p)-1] = 0;
+	SV_SendServerCommand(cl, "chat \"%s%s\"", prefix, text);
+	Com_Printf ("tell: console to %s^7: %s\n", cl->name, SV_ExpandNewlines(text));
+}
+
+static void SV_ConTellChat_f(void) {
+	char	*p;
+	char	text[MAX_STRING_CHARS];
+	client_t	*cl;
+
+	// make sure server is running
+	if ( !com_sv_running->integer ) {
+		Com_Printf( "Server is not running.\n" );
+		return;
 	}
 
-	strcat(text, p);
+	if ( Cmd_Argc() < 3 ) {
+		Com_Printf ("Usage: svtell <client number> <text>\n");
+		return;
+	}
+
+	cl = SV_GetPlayerByNum();
+	if ( !cl ) {
+		return;
+	}
+
+	p = Cmd_ArgsFrom(2);
+	Q_strncpyz(text, p, sizeof(text));
 
 	SV_SendServerCommand(cl, "chat \"%s\"", text);
+	Com_Printf ("svtell: console to %s^7: %s\n", cl->name, SV_ExpandNewlines(text));
 }
 
 
@@ -1336,6 +1364,87 @@ static void SV_Systeminfo_f( void ) {
 
 	Com_Printf ("System info settings:\n");
 	Info_Print ( Cvar_InfoString_Big( CVAR_SYSTEMINFO ) );
+}
+
+/*
+===========
+SV_ForceToggle_f
+
+Changes g_forcePowerDisable according to the options specified
+===========
+*/
+
+typedef struct fpToggle_s {
+	char	*name;
+	int		num;
+	qboolean status;
+} fpToggle_t;
+
+const char *forcePowers[NUM_FORCE_POWERS] = {
+	"HEAL",
+	"JUMP",
+	"SPEED",
+	"PUSH",
+	"PULL",
+	"MINDTRICK",
+	"GRIP",
+	"LIGHTNING",
+	"DARK RAGE",
+	"PROTECT",
+	"ABSORB",
+	"TEAM HEAL",
+	"TEAM REPLENISH",
+	"DRAIN",
+	"SEEING",
+	"SABER OFFENSE",
+	"SABER DEFENSE",
+	"SABER THROW",
+};
+
+static void SV_ForceToggle_f( void ) {
+	int bits = Cvar_VariableIntegerValue("g_forcePowerDisable");
+	int i, val;
+	char *s;
+	const char *enablestrings[] =
+	{
+		"Disabled",
+		"Enabled"
+	};
+
+	// make sure server is running
+	if( !com_sv_running->integer ) {
+		Com_Printf( "Server is not running.\n" );
+		return;
+	}
+
+	if ( Cmd_Argc() != 2 ) {
+		for(i = 0; i < NUM_FORCE_POWERS; i++ ) {
+			Com_Printf ("%i - %s - Status: %s\n", i, forcePowers[i], enablestrings[!(bits & (1<<i))]);
+		}
+		Com_Printf ("Example usage: forcetoggle 3(toggles PUSH)\n");
+		return;
+	}
+
+	s = Cmd_Argv(1);
+
+	if( Q_isanumber( s ) ) {
+		val = atoi(s);
+		if( val >= 0 && val < NUM_FORCE_POWERS) {
+			bits = Cvar_VariableIntegerValue("g_forcePowerDisable");
+			bits ^= (1 << val);
+			Com_Printf ("%s has been %s.\n", forcePowers[val], (bits & (1<<val)) ? "disabled" : "enabled");
+			Cvar_SetValue("g_forcePowerDisable", bits);
+		}
+		else {
+			Com_Printf ("Specified a power that does not exist.\n");
+		}
+	}
+	else {
+		for(i = 0; i < NUM_FORCE_POWERS; i++ ) {
+			Com_Printf ("%i - %s - Status: %s\n", i, forcePowers[i], enablestrings[!(bits & (1<<i))]);
+		}
+		Com_Printf ("Example usage: forcetoggle 3(toggles PUSH)\n");
+	}
 }
 
 
@@ -1395,6 +1504,28 @@ static void SV_CompleteMapName( char *args, int argNum ) {
 
 /*
 ==================
+SV_CompletePlayerID
+==================
+*/
+static void SV_CompletePlayerID( char *args, int argNum ) {
+	if( argNum == 2 ) {
+		Field_CompletePlayerID( );
+	}
+}
+
+/*
+==================
+SV_CompletePlayerName
+==================
+*/
+static void SV_CompletePlayerName( char *args, int argNum ) {
+	if( argNum == 2 ) {
+		Field_CompletePlayerName( );
+	}
+}
+
+/*
+==================
 SV_AddOperatorCommands
 ==================
 */
@@ -1408,21 +1539,18 @@ void SV_AddOperatorCommands( void ) {
 
 	Cmd_AddCommand ("heartbeat", SV_Heartbeat_f);
 	Cmd_AddCommand ("kick", SV_Kick_f);
-#ifndef STANDALONE
-	if(!com_standalone->integer)
-	{
-		Cmd_AddCommand ("banUser", SV_Ban_f);
-		Cmd_AddCommand ("banClient", SV_BanNum_f);
-	}
-#endif
+	Cmd_SetCommandCompletionFunc( "kick", SV_CompletePlayerName );
 	Cmd_AddCommand ("kickbots", SV_KickBots_f);
 	Cmd_AddCommand ("kickall", SV_KickAll_f);
 	Cmd_AddCommand ("kicknum", SV_KickNum_f);
-	Cmd_AddCommand ("clientkick", SV_KickNum_f); // Legacy command
+	Cmd_SetCommandCompletionFunc( "kicknum", SV_CompletePlayerID );
+	Cmd_AddCommand ("clientkick", SV_KickNum_f);
+	Cmd_SetCommandCompletionFunc( "clientkick", SV_CompletePlayerID );
 	Cmd_AddCommand ("status", SV_Status_f);
 	Cmd_AddCommand ("serverinfo", SV_Serverinfo_f);
 	Cmd_AddCommand ("systeminfo", SV_Systeminfo_f);
 	Cmd_AddCommand ("dumpuser", SV_DumpUser_f);
+	Cmd_AddCommand ("forcetoggle", SV_ForceToggle_f);
 	Cmd_AddCommand ("map_restart", SV_MapRestart_f);
 	Cmd_AddCommand ("sectorlist", SV_SectorList_f);
 	Cmd_AddCommand ("map", SV_Map_f);
@@ -1439,6 +1567,10 @@ void SV_AddOperatorCommands( void ) {
 	if( com_dedicated->integer ) {
 		Cmd_AddCommand ("say", SV_ConSay_f);
 		Cmd_AddCommand ("tell", SV_ConTell_f);
+		Cmd_SetCommandCompletionFunc( "tell", SV_CompletePlayerID );
+		Cmd_AddCommand ("svsay", SV_ConChat_f);
+		Cmd_AddCommand ("svtell", SV_ConTellChat_f);
+		Cmd_SetCommandCompletionFunc( "svtell", SV_CompletePlayerID );
 	}
 	
 	Cmd_AddCommand("rehashbans", SV_RehashBans_f);

@@ -191,9 +191,9 @@ static void SV_WriteSnapshotToClient( client_t *client, msg_t *msg ) {
 
 	// delta encode the playerstate
 	if ( oldframe ) {
-		MSG_WriteDeltaPlayerstate( msg, &oldframe->ps, &frame->ps );
+		MSG_WriteDeltaPlayerstate( msg, &oldframe->ps, &frame->ps, qfalse );
 	} else {
-		MSG_WriteDeltaPlayerstate( msg, NULL, &frame->ps );
+		MSG_WriteDeltaPlayerstate( msg, NULL, &frame->ps, qfalse );
 	}
 
 	// delta encode the entities
@@ -290,7 +290,7 @@ SV_AddEntitiesVisibleFromPoint
 ===============
 */
 static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *frame, 
-									snapshotEntityNumbers_t *eNums, qboolean portal ) {
+									snapshotEntityNumbers_t *eNums/*, qboolean portal */ ) {
 	int		e, i;
 	sharedEntity_t *ent;
 	svEntity_t	*svEnt;
@@ -347,12 +347,14 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 			}
 		}
 		// entities can be flagged to be sent to a given mask of clients
+#if 0 // Not supported by jka
 		if ( ent->r.svFlags & SVF_CLIENTMASK ) {
 			if (frame->ps.clientNum >= 32)
 				Com_Error( ERR_DROP, "SVF_CLIENTMASK: clientNum >= 32" );
 			if (~ent->r.singleClient & (1 << frame->ps.clientNum))
 				continue;
 		}
+#endif
 
 		svEnt = SV_SvEntityForGentity( ent );
 
@@ -420,7 +422,7 @@ static void SV_AddEntitiesVisibleFromPoint( vec3_t origin, clientSnapshot_t *fra
 					continue;
 				}
 			}
-			SV_AddEntitiesVisibleFromPoint( ent->s.origin2, frame, eNums, qtrue );
+			SV_AddEntitiesVisibleFromPoint( ent->s.origin2, frame, eNums /*, qtrue */ );
 		}
 
 	}
@@ -489,7 +491,7 @@ static void SV_BuildClientSnapshot( client_t *client ) {
 
 	// add all the entities directly visible to the eye, which
 	// may include portal entities that merge other viewpoints
-	SV_AddEntitiesVisibleFromPoint( org, frame, &entityNumbers, qfalse );
+	SV_AddEntitiesVisibleFromPoint( org, frame, &entityNumbers /*, qfalse */ );
 
 	// if there were portals visible, there may be out of order entities
 	// in the list which will need to be resorted for the delta compression

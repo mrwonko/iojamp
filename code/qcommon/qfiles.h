@@ -86,7 +86,7 @@ typedef struct {
 #define MD3_MAX_VERTS		4096	// per surface
 #define MD3_MAX_SHADERS		256		// per surface
 #define MD3_MAX_FRAMES		1024	// per model
-#define	MD3_MAX_SURFACES	32		// per model
+#define	MD3_MAX_SURFACES	32 + 32	// per model
 #define MD3_MAX_TAGS		16		// per frame
 
 // vertex scales
@@ -391,6 +391,210 @@ typedef struct {
 
 #endif
 
+/*===========================================================================
+Ghoul2 file format (GLM/GLA)
+============================================================================*/
+typedef struct {
+	//float matrix[3][4];
+	vec4_t matrix[3];
+} mgMatrix34_t;//mgMatrix34_t
+
+typedef struct {
+	float quat[7];
+} mgQuat_t;//was glaBoneQuat_t
+
+#define GLM_IDENT                      (('M'<<24)+('G'<<16)+('L'<<8)+'2')
+#define GLA_IDENT                      (('A'<<24)+('G'<<16)+('L'<<8)+'2')
+#define GLM_VERSION 6
+#define GLA_VERSION 6
+#define fG2_BONEWEIGHT_RECIPROCAL_MULT  ((float)(1.0f/1023.0f))
+#define iG2_BITS_PER_BONEREF                    5
+#define iMAX_G2_BONEREFS_PER_SURFACE    (1<<iG2_BITS_PER_BONEREF)       // (32)
+#define iMAX_G2_BONEWEIGHTS_PER_VERT    4       // can't just be blindly increased, affects cache size etc
+#define iG2_BONEWEIGHT_TOPBITS_SHIFT    ((iG2_BITS_PER_BONEREF * iMAX_G2_BONEWEIGHTS_PER_VERT) - 8)     // 8 bits because of 8 in the BoneWeight[] array entry
+#define iG2_BONEWEIGHT_TOPBITS_AND              0x300   // 2 bits, giving 10 total, or 10 bits, for 1023/1024 above
+#define sDEFAULT_GLA_NAME "*default"    // used when making special simple ghoul2 models, usually from MD3 files
+
+//BEGIN GLA Headers
+typedef struct {
+	unsigned char Comp[14];
+} glaCompQuatBone_t;
+
+typedef struct {
+	int                     ident;                          //      "IDP3" = MD3, "RDM5" = MDR, "2LGA"(GL2 Anim) = GLA
+	int                     version;                        // 1,2,3 etc as per format revision
+	char					name[MAX_QPATH];        // GLA name (eg "skeletons/marine")     // note: extension missing
+	float					fScale;                         // will be zero if build before this field was defined, else scale it was built with
+	int                     numFrames;
+	int                     ofsFrames;                      // points at glaFrame_t array
+	int                     numBones;                       // (no offset to these since they're inside the frames array)
+	int                     ofsCompBonePool;        // offset to global compressed-bone pool that all frames use
+	int                     ofsSkel;                        // offset to glaSkel_t info
+	int                     ofsEnd;                         // EOF, which of course gives overall file size
+} glaHeader_t;
+
+typedef struct
+{
+	int offsets[1];
+} glaSkelOffsets_t;
+
+typedef struct
+{
+	char name[MAX_QPATH];
+	unsigned int flags;
+	int parent;
+	mgMatrix34_t BasePoseMat;
+	mgMatrix34_t BasePoseMatInv;
+	int numChildren;
+	int children[1];
+} glaSkel_t;
+
+typedef struct {
+	int iIndex;
+} glaIndex_t;
+
+typedef struct {
+	unsigned short a[7];
+} glaCompBone_t;
+
+typedef struct {
+	glaCompBone_t compArray[1];
+} glaCompBoneArray_t;
+
+//BEGIN GLM Headers
+typedef struct {
+	int		ident;                          // "IDP3" = MD3, "RDM5" = MDR, "2LGM"(GL2 Mesh) = GLM   (cruddy char order I know, but I'm following what was there in other versions)
+	int		version;                        // 1,2,3 etc as per format revision
+	char	name[MAX_QPATH];        // model name (eg "models/players/marine.glm")  // note: extension supplied
+	char	animName[MAX_QPATH];// name of animation file this mesh requires        // note: extension missing
+	int                     animIndex;                      // filled in by game (carcass defaults it to 0)
+	int                     numBones;                       // (for ingame version-checks only, ensure we don't ref more bones than skel file has)
+	int                     numLODs;
+	int                     ofsLODs;
+	int                     numSurfaces;            // now that surfaces are drawn hierarchically, we have same # per LOD
+	int                     ofsSurfHierarchy;
+	int                     ofsEnd;                         // EOF, which of course gives overall file size
+} glmHeader_t;
+
+typedef struct {
+	int offsets[1];         // variable sized (glmHeader_t->numSurfaces), each offset points to a glmSurfHierarchy_t below
+} glmHierarchyOffsets_t;
+
+typedef struct {
+	char            name[MAX_QPATH];
+	unsigned int flags;
+	char            shader[MAX_QPATH];
+	int                     shaderIndex;            // for in-game use (carcass defaults to 0)
+	int                     parentIndex;            // this points to the index in the file of the parent surface. -1 if null/root
+	int                     numChildren;            // number of surfaces which are children of this one
+	int                     childIndexes[1];        // [glmSurfHierarch_t->numChildren] (variable sized)
+} glmSurfHierarchy_t;
+
+typedef struct {
+// (used to contain numSurface/ofsSurfaces fields, but these are same per LOD level now)
+//
+	int                     ofsEnd;                         // offset to next LOD
+} glmLOD_t;
+
+typedef struct {        // added in GLM version 3 for ingame use at Jake's request
+	int offsets[1];         // variable sized (glmHeader_t->numSurfaces), each offset points to surfaces below
+} glmLODSurfOffset_t;
+
+typedef struct {
+int                     ident;                          // this one field at least should be kept, since the game-engine may switch-case (but currently=0 in carcass)
+int                     thisSurfaceIndex;       // 0...glmHeader_t->numSurfaces-1 (because of how ingame renderer works)
+int                     ofsHeader;                      // this will be a negative number, pointing back to main header
+int                     numVerts;
+int                     ofsVerts;
+int                     numTriangles;
+int                     ofsTriangles;
+                                        // Bone references are a set of ints representing all the bones
+                                        // present in any vertex weights for this surface.  This is
+                                        // needed because a model may have surfaces that need to be
+                                        // drawn at different sort times, and we don't want to have
+                                        // to re-interpolate all the bones for each surface.
+                                        //
+ int                     numBoneReferences;
+ int                     ofsBoneReferences;
+int                     ofsEnd;                         // next surface follows
+} glmSurface_t;
+
+typedef struct {
+int                     indexes[3];
+} glmTriangle_t;
+
+typedef struct {
+vec3_t                  normal;
+vec3_t                  vertCoords;
+// packed int...
+unsigned int    uiNmWeightsAndBoneIndexes;
+// 32 bits.  format: 
+// 31 & 30:  0..3 (= 1..4) weight count
+// 29 & 28 (spare)
+// 2 bit pairs at 20,22,24,26 are 2-bit overflows from 4 BonWeights below (20=[0], 22=[1]) etc)
+//  5-bits each (iG2_BITS_PER_BONEREF) for boneweights
+// effectively a packed int, each bone weight converted from 0..1 float to 0..255 int...
+//  promote each entry to float and multiply by fG2_BONEWEIGHT_RECIPROCAL_MULT to convert.
+byte                    BoneWeightings[iMAX_G2_BONEWEIGHTS_PER_VERT];   // 4
+} glmVertex_t;
+
+// for each vert... (glmSurface_t->numVerts)  (seperated from glmVertex_t struct for cache reasons)
+// {
+// glmVertex_t - this is an array with number of verts from the surface definition as its bounds. It contains normal info, texture coors and number of weightings for this bone
+typedef struct {
+        vec2_t                  texCoords;
+} glmVertexTexCoord_t;
+
+//ANIMSTATE
+typedef struct {
+	int			bonenum;
+	int			oldframe;
+	int			frame;
+	float		slerp;
+} mg_boneaanim_t;
+
+#define MG_AS_THIRDPERSONONLY 0x00000001
+#define MG_AS_NODRAW 0x00000002
+
+typedef struct {
+	unsigned int flags[1];
+} mg_surflist_t;
+
+typedef struct {
+	int			shaderIndex[1];
+} mg_surfshaders_t;
+
+#define MAX_ANIMSTATE_TRANSFORMS 8
+
+typedef struct mg_animstate_s {
+	int			index;
+	int			ent_owner;
+	int			numBones;
+	int			numAnims;
+	mg_boneaanim_t boneanim[MAX_ANIMSTATE_TRANSFORMS];
+	char		animName[64];
+	char		meshName[64];
+	int			numSurfs;
+	int			numAllocSurfs;
+	qboolean	sanitarySurfs;
+	int			skinHandle;
+	int			shaderHandle;
+	int			meshHandle; // handle to glm
+	int			animHandle; // handle to gla
+	/*
+	int			ofsOldframe;
+	int			ofsNewFrame;
+	int			ofsResFrame;
+	int			ofsPose;
+	*/
+	mgQuat_t *oldframe;
+	mgQuat_t *newframe;
+	mgQuat_t *resframe;
+	mgMatrix34_t *pose;
+	mg_surflist_t *surfList;
+	mg_surfshaders_t *shaderList;
+} mg_animstate_t;
+
 /*
 ==============================================================================
 
@@ -400,10 +604,10 @@ typedef struct {
 */
 
 
-#define BSP_IDENT	(('P'<<24)+('S'<<16)+('B'<<8)+'I')
-		// little-endian "IBSP"
+#define BSP_IDENT   ( ( 'P' << 24 ) + ( 'S' << 16 ) + ( 'B' << 8 ) + 'R' )
+		// little-endian "RBSP"
 
-#define BSP_VERSION			46
+#define BSP_VERSION			1
 
 
 // there shouldn't be any problem with increasing these values at the
@@ -424,7 +628,8 @@ typedef struct {
 #define	MAX_MAP_LEAFBRUSHES 0x40000
 #define	MAX_MAP_PORTALS		0x20000
 #define	MAX_MAP_LIGHTING	0x800000
-#define	MAX_MAP_LIGHTGRID	0x800000
+#define MAX_MAP_LIGHTGRID   0xFFFF // 65535
+#define	MAX_MAP_LIGHTGRID_ARRAY	0x100000
 #define	MAX_MAP_VISIBILITY	0x200000
 
 #define	MAX_MAP_DRAW_SURFS	0x20000
@@ -471,7 +676,8 @@ typedef struct {
 #define	LUMP_LIGHTMAPS		14
 #define	LUMP_LIGHTGRID		15
 #define	LUMP_VISIBILITY		16
-#define	HEADER_LUMPS		17
+#define LUMP_LIGHTARRAY		17
+#define HEADER_LUMPS		18
 
 typedef struct {
 	int			ident;
@@ -523,6 +729,7 @@ typedef struct {
 typedef struct {
 	int			planeNum;			// positive plane side faces out of the leaf
 	int			shaderNum;
+	int			drawSurfNum;
 } dbrushside_t;
 
 typedef struct {
@@ -537,14 +744,37 @@ typedef struct {
 	int			visibleSide;	// the brush side that ray tests need to clip against (-1 == none)
 } dfog_t;
 
+// Light Style Constants
+#define	MAXLIGHTMAPS	4
+#define LS_NORMAL		0x00
+#define LS_UNUSED		0xfe
+#define	LS_LSNONE		0xff //rww - changed name because it unhappily conflicts with a lightsaber state name and changing this is just easier
+#define MAX_LIGHT_STYLES		64
+
 typedef struct {
 	vec3_t		xyz;
 	float		st[2];
-	float		lightmap[2];
+	float		lightmap[MAXLIGHTMAPS][2];
 	vec3_t		normal;
-	byte		color[4];
+	byte		color[MAXLIGHTMAPS][4];
+} mapVert_t;
+
+typedef struct {
+	vec3_t		xyz;
+	float		st[2];
+	float		lightmap[MAXLIGHTMAPS][2];
+	vec3_t		normal;
+	byte		color[MAXLIGHTMAPS][4];
 } drawVert_t;
 
+typedef struct {
+	byte		ambientLight[MAXLIGHTMAPS][3];
+	byte		directLight[MAXLIGHTMAPS][3];
+	byte		styles[MAXLIGHTMAPS];
+	byte		latLong[2];
+} dgrid_t;
+
+#define mapVert_t_cleared(x) mapVert_t (x) = {{0, 0, 0}, {0, 0}, {0, 0}, {0, 0, 0}, {0, 0, 0, 0}}
 #define drawVert_t_cleared(x) drawVert_t (x) = {{0, 0, 0}, {0, 0}, {0, 0}, {0, 0, 0}, {0, 0, 0, 0}}
 
 typedef enum {
@@ -565,9 +795,10 @@ typedef struct {
 
 	int			firstIndex;
 	int			numIndexes;
-
-	int			lightmapNum;
-	int			lightmapX, lightmapY;
+	
+	byte		lightmapStyles[MAXLIGHTMAPS], vertexStyles[MAXLIGHTMAPS];
+	int			lightmapNum[MAXLIGHTMAPS];
+	int			lightmapX[MAXLIGHTMAPS], lightmapY[MAXLIGHTMAPS];
 	int			lightmapWidth, lightmapHeight;
 
 	vec3_t		lightmapOrigin;
@@ -577,5 +808,44 @@ typedef struct {
 	int			patchHeight;
 } dsurface_t;
 
+/////////////////////////////////////////////////////////////
+//
+// Defines and structures required for fonts
+
+#define GLYPH_COUNT			256
+
+// Must match define in stmparse.h
+#define STYLE_DROPSHADOW	0x80000000
+#define STYLE_BLINK			0x40000000
+#define	SET_MASK			0x00ffffff
+
+typedef struct 
+{
+	short		width;					// number of pixels wide
+	short		height;					// number of scan lines
+	short		horizAdvance;			// number of pixels to advance to the next char
+	short		horizOffset;			// x offset into space to render glyph
+	int			baseline;				// y offset 
+	float		s;						// x start tex coord
+	float		t;						// y start tex coord
+	float		s2;						// x end tex coord
+	float		t2;						// y end tex coord
+} glyphInfo_t;
+
+
+// this file corresponds 1:1 with the "*.fontdat" files, so don't change it unless you're going to
+//	recompile the fontgen util and regenerate all the fonts!
+//
+typedef struct dfontdat_s
+{
+	glyphInfo_t		mGlyphs[GLYPH_COUNT];
+
+	short			mPointSize;
+	short			mHeight;				// max height of font
+	short			mAscender;
+	short			mDescender;
+
+	short			mKoreanHack;
+} dfontdat_t;
 
 #endif

@@ -96,7 +96,7 @@ void GL_TextureMode( const char *string ) {
 
 	// hack to prevent trilinear from being set on voodoo,
 	// because their driver freaks...
-	if ( i == 5 && glConfig.hardwareType == GLHW_3DFX_2D3D ) {
+	if ( i == 5 && glConfig2.hardwareType == GLHW_3DFX_2D3D ) {
 		ri.Printf( PRINT_ALL, "Refusing to set trilinear on a voodoo.\n" );
 		i = 3;
 	}
@@ -560,7 +560,7 @@ static void Upload32( unsigned *data,
 						  qboolean picmip, 
 							qboolean lightMap,
 						  int *format, 
-						  int *pUploadWidth, int *pUploadHeight )
+						  int *pUploadWidth, int *pUploadHeight, qboolean noTC )
 {
 	int			samples;
 	unsigned	*scaledBuffer = NULL;
@@ -694,11 +694,11 @@ static void Upload32( unsigned *data,
 			}
 			else
 			{
-				if ( glConfig.textureCompression == TC_S3TC_ARB )
+				if ( !noTC && glConfig.textureCompression == TC_S3TC_ARB )
 				{
 					internalFormat = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
 				}
-				else if ( glConfig.textureCompression == TC_S3TC )
+				else if ( !noTC && glConfig.textureCompression == TC_S3TC )
 				{
 					internalFormat = GL_RGB4_S3TC;
 				}
@@ -812,8 +812,8 @@ done:
 	if (mipmap)
 	{
 		if ( textureFilterAnisotropic )
-			qglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT,
-					(GLint)Com_Clamp( 1, maxAnisotropy, r_ext_max_anisotropy->integer ) );
+			qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT,
+				(GLfloat)Com_Clamp( 1, glConfig.maxTextureFilterAnisotropy, r_ext_max_anisotropy->integer ) );
 
 		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min);
 		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max);
@@ -848,6 +848,7 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height,
 	image_t		*image;
 	qboolean	isLightmap = qfalse;
 	long		hash;
+	qboolean	noTC = qfalse;
 	int         glWrapClampMode;
 
 	if (strlen(name) >= MAX_QPATH ) {
@@ -855,6 +856,13 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height,
 	}
 	if ( !strncmp( name, "*lightmap", 9 ) ) {
 		isLightmap = qtrue;
+		if ( r_ext_compress_lightmaps->value == 0 ) {
+			noTC = qtrue;
+		}
+	}
+
+	if ( r_ext_compress_textures->value && tr.allowCompression == qfalse ) {
+		noTC = qtrue;
 	}
 
 	if ( tr.numImages == MAX_DRAWIMAGES ) {
@@ -896,7 +904,7 @@ image_t *R_CreateImage( const char *name, byte *pic, int width, int height,
 								isLightmap,
 								&image->internalFormat,
 								&image->uploadWidth,
-								&image->uploadHeight );
+								&image->uploadHeight, noTC );
 
 	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glWrapClampMode );
 	qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glWrapClampMode );
@@ -1076,6 +1084,47 @@ R_CreateDlightImage
 */
 #define	DLIGHT_SIZE	16
 static void R_CreateDlightImage( void ) {
+	int width = DLIGHT_SIZE, height = DLIGHT_SIZE;
+	byte *pic = NULL;
+
+	R_LoadImage( "gfx/2d/dlight", &pic, &width, &height );
+
+	if ( pic )
+	{//File exists
+		tr.dlightImage = R_CreateImage("*dlight", pic, width, height, qfalse, qfalse, GL_CLAMP_TO_EDGE); // GL_CLAMP JA uses GL_CLAMP
+		ri.Free( pic );
+	}
+	else
+	{
+		int		x,y;
+		byte	data[DLIGHT_SIZE][DLIGHT_SIZE][4];
+		int		b;
+
+		// make a centered inverse-square falloff blob for dynamic lighting
+		for (x=0 ; x<DLIGHT_SIZE ; x++) {
+			for (y=0 ; y<DLIGHT_SIZE ; y++) {
+				float	d;
+
+				d = ( DLIGHT_SIZE/2 - 0.5f - x ) * ( DLIGHT_SIZE/2 - 0.5f - x ) +
+					( DLIGHT_SIZE/2 - 0.5f - y ) * ( DLIGHT_SIZE/2 - 0.5f - y );
+				b = 4000 / d;
+				if (b > 255) {
+					b = 255;
+				} else if ( b < 75 ) {
+					b = 0;
+				}
+				data[y][x][0] = 
+				data[y][x][1] = 
+				data[y][x][2] = b;
+				data[y][x][3] = 255;			
+			}
+		}
+		tr.dlightImage = R_CreateImage("*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, qfalse, qfalse, GL_CLAMP_TO_EDGE );
+	}
+}
+#if 0
+#define	DLIGHT_SIZE	16
+static void R_CreateDlightImage( void ) {
 	int		x,y;
 	byte	data[DLIGHT_SIZE][DLIGHT_SIZE][4];
 	int		b;
@@ -1101,6 +1150,7 @@ static void R_CreateDlightImage( void ) {
 	}
 	tr.dlightImage = R_CreateImage("*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, IMGTYPE_COLORALPHA, IMGFLAG_CLAMPTOEDGE, 0 );
 }
+#endif
 
 
 /*
@@ -1567,7 +1617,7 @@ qhandle_t RE_RegisterSkin( const char *name ) {
 	R_IssuePendingRenderCommands();
 
 	// If not a .skin file, load as a single shader
-	if ( strcmp( name + strlen( name ) - 5, ".skin" ) ) {
+	if (  !COM_CompareExtension( name, ".skin" ) ) {
 		skin->numSurfaces = 1;
 		skin->surfaces[0] = ri.Hunk_Alloc( sizeof(skin->surfaces[0]), h_low );
 		skin->surfaces[0]->shader = R_FindShader( name, LIGHTMAP_NONE, qtrue );
@@ -1582,6 +1632,10 @@ qhandle_t RE_RegisterSkin( const char *name ) {
 
 	text_p = text.c;
 	while ( text_p && *text_p ) {
+		if ( skin->numSurfaces == MD3_MAX_SURFACES ) {
+			ri.Printf( PRINT_WARNING, "WARNING: RE_RegisterSkin( '%s' ) more than %d surfaces!\n", name, MD3_MAX_SURFACES );
+			break;
+		}
 		// get surface name
 		token = CommaParse( &text_p );
 		Q_strncpyz( surfName, token, sizeof( surfName ) );
@@ -1602,6 +1656,10 @@ qhandle_t RE_RegisterSkin( const char *name ) {
 		
 		// parse the shader name
 		token = CommaParse( &text_p );
+
+		if ( strstr( token, "*off" ) || strstr( token, "_off" ) ) {
+			continue;
+		}
 
 		surf = skin->surfaces[ skin->numSurfaces ] = ri.Hunk_Alloc( sizeof( *skin->surfaces[0] ), h_low );
 		Q_strncpyz( surf->name, surfName, sizeof( surf->name ) );

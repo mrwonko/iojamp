@@ -23,6 +23,61 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // q_shared.c -- stateless support routines that are included in each code dll
 #include "q_shared.h"
 
+/*
+===============
+GetIDForString 
+===============
+*/
+int GetIDForString( stringID_table_t *table, const char *string ) {
+	int	index = 0;
+
+	while( ( table[index].name != NULL ) && ( table[index].name[0] != 0 ) ) {
+		if( !Q_stricmp( table[index].name, string ) )
+			return table[index].id;
+
+		index++;
+	}
+
+	return -1;
+}
+/*
+===============
+GetStringForID
+===============
+*/
+const char *GetStringForID( stringID_table_t *table, int id ) {
+	int	index = 0;
+
+	while( ( table[index].name != NULL ) && ( table[index].name[0] != 0 ) ) {
+		if ( table[index].id == id )
+			return table[index].name;
+
+		index++;
+	}
+
+	return NULL;
+}
+
+static uint32_t holdrand = 0x89abcdef;
+
+int irand(int min, int max)
+{
+	int		result;
+
+	assert((max - min) < 32768);
+
+	max++;
+	holdrand = (holdrand * 214013) + 2531011;
+	result = holdrand >> 17;
+	result = ((result * (max - min)) >> 15) + min;
+	return(result);
+}
+
+int Q_irand(int value1, int value2)
+{
+	return irand(value1, value2);
+}
+
 float Com_Clamp( float min, float max, float value ) {
 	if ( value < min ) {
 		return min;
@@ -328,6 +383,84 @@ void COM_ParseWarning( char *format, ... )
 }
 
 /*
+===============
+COM_ParseString
+===============
+*/
+qboolean COM_ParseString( char **data, const char **s ) 
+{
+//	*s = COM_ParseExt( data, qtrue );
+	*s = COM_ParseExt( data, qfalse );
+	if ( s[0] == 0 ) 
+	{
+		Com_Printf("unexpected EOF\n");
+		return qtrue;
+	}
+	return qfalse;
+}
+
+/*
+===============
+COM_ParseInt
+===============
+*/
+qboolean COM_ParseInt( char **data, int *i ) 
+{
+	const char	*token;
+
+	token = COM_ParseExt( data, qfalse );
+	if ( token[0] == 0 ) 
+	{
+		Com_Printf( "unexpected EOF\n" );
+		return qtrue;
+	}
+
+	*i = atoi( token );
+	return qfalse;
+}
+
+/*
+===============
+COM_ParseFloat
+===============
+*/
+qboolean COM_ParseFloat( char **data, float *f ) 
+{
+	const char	*token;
+
+	token = COM_ParseExt( data, qfalse );
+	if ( token[0] == 0 ) 
+	{
+		Com_Printf( "unexpected EOF\n" );
+		return qtrue;
+	}
+
+	*f = atof( token );
+	return qfalse;
+}
+
+/*
+===============
+COM_ParseVec4
+===============
+*/
+qboolean COM_ParseVec4( char **buffer, vec4_t *c) 
+{
+	int i;
+	float f;
+
+	for (i = 0; i < 4; i++) 
+	{
+		if (COM_ParseFloat(buffer, &f)) 
+		{
+			return qtrue;
+		}
+		(*c)[i] = f;
+	}
+	return qfalse;
+}
+
+/*
 ==============
 COM_Parse
 
@@ -356,7 +489,7 @@ static char *SkipWhitespace( char *data, qboolean *hasNewLines ) {
 	return data;
 }
 
-int COM_Compress( char *data_p ) {
+int COM_Compress__unmodified( char *data_p ) {	// drakkar - original COM_Compress(), unmodified version
 	char *in, *out;
 	int c;
 	qboolean newline = qfalse, whitespace = qfalse;
@@ -424,8 +557,234 @@ int COM_Compress( char *data_p ) {
 	}
 	return out - data_p;
 }
+int COM_Compress( char *data_p ) {   // drakkar - new COM_Compress(), optimized version
+	char *in, *out;
+	int depth, c;
 
-char *COM_ParseExt( char **data_p, qboolean allowLineBreaks )
+	if( !data_p ) return -1;
+
+	depth = 0;
+	in = out = data_p;
+
+	while( (c = *in++) != '\0' )
+	{
+		if( c <= '/' || c >= '{' )  // skip lot of conditions if c is regular char
+		{
+			//  whitespace or newline
+			if( c <= ' ' )
+			{
+				if( out > data_p && out[-1] <= ' ' ) {
+					out--;
+					*out = ( c == '\n' ? '\n' : *out );
+				}
+				else {
+					*out = ( c == '\n' ? '\n' : ' ' );
+				}				
+				while( *in && *in <= ' ' ) {
+					if( *in++ == '\n' ) {
+						com_lines++;
+						*out = '\n';
+					}
+				}
+				out++;
+				continue;
+			}
+
+			// skip comments
+			if( c == '/' ) {
+				// double slash comments
+				if( *in == '/' ) {
+					in++;
+					while( *in && *in != '\n' ) in++;  // ignore until newline
+					if( out > data_p && out[-1] <= ' ' ) out--;
+					if( *in ) in++;
+					com_lines++;
+					*out++ = '\n';
+				}
+				// multiline /* */ comments
+				else if( *in == '*' ) {
+					in++;
+					while( *in && ( *in != '*' || in[1] != '/' ) ) {  // ignore until comment close
+						if( *in++ == '\n' ) {
+							com_lines++;
+						}
+					}
+					if( *in ) in += 2;
+				}
+				// not comment
+				else {
+					*out++ = '/';
+				}					
+				continue;
+			}
+
+			// handle quoted strings
+			if( c == '"' )
+			{
+				*out++ = '"';
+				while( *in && *in != '"' ) *out++ = *in++;
+				*out++ = '"';
+				in++;
+				continue;
+			}
+
+			// brace matching
+			if( c == '{' || c == '}' ) {
+				if( out > data_p && out[-1] > ' ' && out+1 < in ) *out++ = ' ';
+				*out++ = c;
+				if( out+1 < in ) *out++ = ' ';
+				depth += ( c == '{' ? +1 : -1 );
+				continue;
+			}
+		}
+
+		// parse a regular word	
+		while( c ) {
+			*out++ = c;
+			c = *in;
+			// end of regular chars ?
+			if( c <= '/' ) break;
+			if( c >= '{' ) break;
+			in++;
+		}
+	}
+
+	if( depth ) {
+		COM_ParseWarning( "Unmatched braces in shader text" );
+	}
+
+	if( out > data_p && out[-1] <= ' ' ) out--; // remove ending white char
+	*out = '\0';
+
+	return (int)out - (int)data_p;
+}
+
+int COM_CompressBracedSection( char **data_p, char **name, char **text, int *nameLength, int *textLength ) { // drakkar - optimized sub-parse function
+	char *in, *out;
+	int depth, c;
+
+	if( !*data_p ) return -1;
+
+	*name = NULL;
+	*text = NULL;
+
+	*nameLength = 0;
+	*textLength = 0;
+
+	depth = 0;
+	in = out = *data_p;
+
+	if( !*in ) return 0;
+
+	while( (c = *in++) != '\0' )
+	{
+		if( c <= '/' || c >= '{' )	// skip lot of conditions if c is regular char
+		{
+			//  whitespace or newline
+			if( c <= ' ' )
+			{
+				if( out > *data_p && out[-1] <= ' ' ) {
+					out--;
+					*out = ( c == '\n' ? '\n' : *out );
+				}
+				else {
+					*out = ( c == '\n' ? '\n' : ' ' );
+				}				
+				while( *in && *in <= ' ' ) {
+					if( *in++ == '\n' ) {
+						com_lines++;
+						*out = '\n';
+					}
+				}
+				out++;
+				continue;
+			}
+
+			// skip comments
+			if( c == '/' ) {
+				// double slash comments
+				if( *in == '/' ) {
+					in++;
+					while( *in && *in != '\n' ) in++;  // ignore until newline
+					if( out > *data_p && out[-1] <= ' ' ) out--;
+					if( *in ) in++;
+					com_lines++;
+					*out++ = '\n';
+				}
+				// multiline /* */ comments
+				else if( *in == '*' ) {
+					in++;
+					while( *in && ( *in != '*' || in[1] != '/' ) ) {  // ignore until comment close
+						if( *in++ == '\n' ) {
+							com_lines++;
+						}
+					}
+					if( *in ) in += 2;
+				}
+				// not comment
+				else {
+					*out++ = '/';
+				}					
+				continue;
+			}
+
+			// handle quoted strings
+			if( c == '"' )
+			{
+				*out++ = '"';
+				while( *in && *in != '"' ) *out++ = *in++;
+				*out++ = '"';
+				in++;
+				continue;
+			}
+
+			// brace matching
+			if( c == '{' || c == '}' ) {
+				if( c == '{' && !*name ) {
+					*name = *data_p;
+					if( *(*name) <= ' ' ) (*name)++;
+					*nameLength = (int)out - (int)*name;
+					if( (*name)[*nameLength-1] <= ' ' ) (*nameLength)--;
+					*text = out;
+				}
+				if( out > *data_p && out[-1] > ' ' && out+1 < in ) *out++ = ' ';
+				*out++ = c;
+				if( out+1 < in ) *out++ = ' ';
+				depth += ( c == '{' ? +1 : -1 );
+				if( depth <= 0 ) break;
+				continue;
+			}
+		}
+
+		// parse a regular word	
+		while( c ) {
+			*out++ = c;
+			c = *in;
+			// end of regular chars ?
+			if( c <= '/' ) break;
+			if( c >= '{' ) break;
+			in++;
+		}
+	}
+
+	if( depth ) {
+		COM_ParseWarning( "Unmatched braces in shader text" );
+	}
+
+	if( !c ) in--;
+
+	if( *text && *(*text) <= ' ' ) (*text)++;			// remove begining white char
+	if( out > *data_p && out[-1] <= ' ' ) out--;		// remove ending white char
+	if( *text ) *textLength = (int)out - (int)*text;	// compressed text length
+
+	c = (int)out - (int)*data_p;						// uncompressed chars parsed
+
+	*data_p = in;
+
+	return c;
+}
+
+char *COM_ParseExt__unmodified( char **data_p, qboolean allowLineBreaks ) // drakkar - original COM_ParseExt(), unmodified version
 {
 	int c = 0, len;
 	qboolean hasNewLines = qfalse;
@@ -524,6 +883,88 @@ char *COM_ParseExt( char **data_p, qboolean allowLineBreaks )
 	com_token[len] = 0;
 
 	*data_p = ( char * ) data;
+	return com_token;
+}
+
+char *COM_ParseExt( char **data_p, qboolean allowLineBreaks ) // drakkar - new COM_ParseExt(), optimized version
+{
+	char *in, *out;
+
+	com_token[0] = 0;
+
+	if( !*data_p ) return com_token;
+
+	in = *data_p;
+	out = com_token;
+
+	if( *in && *in <= '/' ) // skip lot of conditions if *in is regular char
+	{
+		// ignore while whitespace or newline
+		while( *in && *in <= ' ' ) {
+			if( *in++ == '\n') {
+				com_lines++;
+				if( !allowLineBreaks ) {
+					*data_p = in;
+					return com_token;
+				}
+			}
+		}
+
+		// skip comments
+		while( *in == '/' ) {
+			in++;
+			if( *in == '/' ) {
+				in++;
+				while( *in && *in != '\n' ) in++;  // ignore until newline
+				if( *in ) in++;
+			}
+			else if( *in == '*' ) {
+				in++;
+				while( *in && ( *in != '*' || in[1] != '/' ) ) in++;  // ignore until comment close
+				if( *in ) in += 2;
+			}
+			else {
+				*out++ = '/';
+				break;
+			}
+			while( *in && *in <= ' ' ) {
+				if( *in++ == '\n') {
+					com_lines++;
+					if( !allowLineBreaks ) {
+						*data_p = in;
+						return com_token;
+					}
+				}
+			}
+		}
+
+		// handle quoted strings
+		if( *in == '"' ) {
+			in++;
+			while( *in && *in != '"' ) {
+				if( (out-com_token) >= MAX_TOKEN_CHARS-2 ) {
+					COM_ParseWarning( "Token exceeded %d chars, truncated.", MAX_TOKEN_CHARS-2 );
+					break;
+				}
+				*out++ = *in++;
+			}
+			if( *in ) in++;
+			*out = '\0';
+			*data_p = in;
+			return com_token;
+		}
+	}
+
+	// parse a regular word
+	while( *in > ' ' ) {
+		if( (out-com_token) >= MAX_TOKEN_CHARS-1 ) {
+			COM_ParseWarning( "Token exceeded %d chars, truncated.", MAX_TOKEN_CHARS-2 );
+			break;
+		}
+		*out++ = *in++;
+	}
+	*out = '\0';
+	*data_p = ( *in ? in : NULL );	// next text point or NULL if end of text reached
 	return com_token;
 }
 

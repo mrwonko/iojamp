@@ -94,6 +94,13 @@ typedef struct {
 
 	int				restartTime;
 	int				time;
+
+	//rwwRMG - added:
+	int				mLocalSubBSPIndex;
+	int				mLocalSubBSPModelOffset;
+	char			*mLocalSubBSPEntityParsePoint;
+
+	char			*mSharedMemory;
 } server_t;
 
 
@@ -104,6 +111,7 @@ typedef struct {
 	int				areabytes;
 	byte			areabits[MAX_MAP_AREA_BYTES];		// portalarea visibility bits
 	playerState_t	ps;
+	playerState_t	vps; //vehicle I'm riding's playerstate (if applicable) -rww
 	int				num_entities;
 	int				first_entity;		// into the circular sv_packet_entities[]
 										// the entities MUST be in increasing state number
@@ -134,6 +142,8 @@ typedef struct netchan_buffer_s {
 typedef struct client_s {
 	clientState_t	state;
 	char			userinfo[MAX_INFO_STRING];		// name, etc
+	
+	qboolean		sentGamedir; //see if he has been sent an svc_setgame (ensi: from jka don't know if this is even needed as you can obtain the user's gamename from the newer ioq3 protocols)
 
 	char			reliableCommands[MAX_RELIABLE_COMMANDS][MAX_STRING_CHARS];
 	int				reliableSequence;		// last added reliable message, not necesarily sent or acknowledged yet
@@ -193,6 +203,9 @@ typedef struct client_s {
 	int queuedVoipPackets;
 	int queuedVoipIndex;
 #endif
+	
+	int				lastUserInfoChange; //if > svs.time && count > x, deny change -rww
+	int				lastUserInfoCount; //allow a certain number of changes within a certain time period -rww
 
 	int				oldServerTime;
 	qboolean		csUpdated[MAX_CONFIGSTRINGS+1];	
@@ -244,6 +257,8 @@ typedef struct {
 	netadr_t	redirectAddress;			// for rcon return messages
 
 	netadr_t	authorizeAddress;			// for rcon return messages
+
+	siegePers_t	*siege;
 } serverStatic_t;
 
 #define SERVER_MAXBANS	1024
@@ -280,6 +295,7 @@ extern	cvar_t	*sv_padPackets;
 extern	cvar_t	*sv_killserver;
 extern	cvar_t	*sv_mapname;
 extern	cvar_t	*sv_mapChecksum;
+extern	cvar_t	*sv_cheats;
 extern	cvar_t	*sv_serverid;
 extern	cvar_t	*sv_minRate;
 extern	cvar_t	*sv_maxRate;
@@ -290,9 +306,6 @@ extern	cvar_t	*sv_gametype;
 extern	cvar_t	*sv_pure;
 extern	cvar_t	*sv_floodProtect;
 extern	cvar_t	*sv_lanForceRate;
-#ifndef STANDALONE
-extern	cvar_t	*sv_strictAuth;
-#endif
 extern	cvar_t	*sv_banFile;
 
 extern	serverBan_t serverBans[SERVER_MAXBANS];
@@ -343,10 +356,6 @@ void SV_GetChallenge(netadr_t from);
 
 void SV_DirectConnect( netadr_t from );
 
-#ifndef STANDALONE
-void SV_AuthorizeIpPacket( netadr_t from );
-#endif
-
 void SV_ExecuteClientMessage( client_t *cl, msg_t *msg );
 void SV_UserinfoChanged( client_t *cl );
 
@@ -365,6 +374,7 @@ int SV_SendQueuedMessages(void);
 //
 // sv_ccmds.c
 //
+const char *SV_StringEdString( const char *refName );
 void SV_Heartbeat_f( void );
 
 //
